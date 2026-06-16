@@ -12,9 +12,10 @@
 
 - **Projeto atual: estação Two-Axis Pick & Place** (FACTORY I/O v2.5.10 ↔ S7-PLCSIM).
   **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl`,
-  `DBs/StationData.scl`, `FCs/FC_ScaleVolt.scl`, `FCs/FC_IoMapInputs.scl` e
-  `FCs/FC_IoMapOutputs.scl` criados e validados no linter (MCP limpo); `OBs/` e `FBs/` ainda
-  vazias. Escopo em
+  `DBs/StationData.scl`, `FCs/FC_ScaleVolt.scl`, `FCs/FC_IoMapInputs.scl`,
+  `FCs/FC_IoMapOutputs.scl`, `FBs/FB_ClockGen.scl`, `FBs/FB_AxisPos.scl` e
+  `FBs/FB_Rotate180.scl` criados e validados no linter (MCP limpo); `OBs/` vazia, demais FBs a
+  criar. Escopo em
   `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
   `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
 - **Transição (2026-06-16):** removido TODO o código SCL do subsistema antigo (20 motores +
@@ -34,7 +35,8 @@
   FB_MachineMode, FB_PickPlaceSeq, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_ClockGen, FCs de
   I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
   `typeAxis`, `typeStation` (+`Sts.SensorBox`), `StationData`, `FC_ScaleVolt`,
-  `FC_IoMapInputs`, `FC_IoMapOutputs`. **Próximo:** `FB_ClockGen` (1º FB com estado).
+  `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_ClockGen`, `FB_AxisPos`, `FB_Rotate180`.
+  **Próximo:** `FB_Conveyor`.
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
   PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
@@ -192,8 +194,12 @@
   `FB_PickPlaceSeq`) devem **escrever** `Sts.M1Speed/M2Speed/VacuumOn/AxisX-Z.SP` no DB (via
   IN_OUT) antes do FC de saída rodar (ele só LÊ esses campos). O `FB_MachineMode` produz
   `o_SafeState` (entrada da máscara) e as 6 luzes (VAR_INPUT do FC de saída).
-- **Carry-forward do revisor:** no `FB_AxisPos`, usar `Cfg.PosTol`/`Cfg.PosDebounce` como
-  fonte única da tolerância/debounce do eixo (evita divergir dos defaults de `typeAxis`).
+- **Carry-forward (eixos):** `FB_AxisPos` (feito, interface escalar) recebe `i_Tol`/`i_Debounce`
+  por VAR_INPUT. No `FB_PickPlaceSeq`, ligar a `Cfg.PosTol`/`Cfg.PosDebounce` (**fonte única** —
+  não os defaults de `typeAxis`), `i_PV := Sts.AxisX/Z.PV`, e escrever `o_SetPointCmd`/`o_InPos`
+  em `Sts.AxisX/Z.SP`/`.InPos` (para o `FC_IoMapOutputs` ler o SP).
 - **Safety no consumidor:** ao implementar `FB_MachineMode`, o safety-auditor valida o
   tratamento NF de `Cmd.EStop`/`Cmd.Stop` (latch, prioridade, reset por borda).
-- Fechar §9.2 do escopo no PLCSIM (largura do pulso de rotação, valores exatos, polaridade).
+- Fechar §9.2 do escopo no PLCSIM (valores exatos, polaridade NC/NO, e **debounce de
+  `i_Rotating`** — anti-glitch da contagem de 90° no `FB_Rotate180`, achado [MÉDIO] do
+  revisor; largura de pulso já resolvida pelo handshake). Encaminhar ao test-sim-engineer.

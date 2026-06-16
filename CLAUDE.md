@@ -8,13 +8,15 @@ Guia para o Claude Code trabalhar neste projeto.
 desenvolvido no **TIA Portal**, simulado em **FACTORY I/O + S7-PLCSIM** e editado no
 WebStorm (`.idea/`).
 
-> **Estado atual: fase de especificação.** O escopo do processo está em
-> **`DOCS/ESCOPO_PickPlace.md`**: uma estação **Two-Axis Pick & Place** com duas esteiras
-> (**M1** entrada, **M2** saída), comandos **Liga/Desliga/Emergência/Reset**, **torre de
-> sinalização** (vermelho/verde/amarelo) e o ciclo **pega → gira 180° → deposita → retorna**.
-> Os eixos X/Z são **posicionamento analógico** (setpoint em tensão 0–10 V × feedback de
-> posição em tensão), não Technology Objects. **Ainda não há código SCL** — a implementação
-> começa a partir do escopo.
+> **Estado atual: implementação em andamento (9/12 blocos).** O escopo do processo está em
+> **`DOCS/ESCOPO_PickPlace.md`** e a arquitetura em **`DOCS/ARQUITETURA_PickPlace.md`**: uma
+> estação **Two-Axis Pick & Place** com duas esteiras (**M1** entrada, **M2** saída), comandos
+> **Liga/Desliga/Emergência/Reset**, **torre de sinalização** e o ciclo **pega → gira 180° →
+> deposita → retorna**. Os eixos X/Z são **posicionamento analógico** (setpoint/feedback em
+> tensão 0–10 V), não Technology Objects. **Feitos** (validados no linter): UDTs `typeAxis`/
+> `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
+> `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`. **Faltam:** `FB_Conveyor`, `FB_MachineMode`,
+> `FB_PickPlaceSeq`, `OB_Main`. Progresso ao vivo em `DOCS/PROJECT_STATE.md`.
 >
 > *(Histórico: o repositório teve antes um subsistema de 20 motores + 2 reguladores ITV,
 > removido nesta sessão. O log fica em `DOCS/PROJECT_STATE.md`.)*
@@ -48,11 +50,13 @@ WebStorm (`.idea/`).
 ```
 aula01/
 ├─ OBs/          (vazio — a criar: OB_Main / OB1)
-├─ FBs/          (vazio — a criar: ver arquitetura proposta abaixo)
-├─ DBs/          (vazio — a criar: DB global StationData)
-├─ UDTs/         typeAxis.scl, typeStation.scl (criados) — base do typeStation
-├─ DOCS/         ESCOPO + ARQUITETURA + tags + manuais SCL + export de tags
-└─ .claude/      agentes, comandos e skills (mantidos)
+├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180  (+ FB_Conveyor, FB_MachineMode,
+│                FB_PickPlaceSeq a criar)
+├─ FCs/          FC_ScaleVolt, FC_IoMapInputs, FC_IoMapOutputs
+├─ DBs/          StationData (Station : typeStation)
+├─ UDTs/         typeAxis, typeStation
+├─ DOCS/         ESCOPO + ARQUITETURA + tags + Componentes + manuais SCL + export de tags
+└─ .claude/      agentes, comandos, skills, hooks (mantidos)
 ```
 
 Convenção de pastas por tipo de bloco: `OBs/`, `FBs/`, `DBs/`, `UDTs/`, e (quando

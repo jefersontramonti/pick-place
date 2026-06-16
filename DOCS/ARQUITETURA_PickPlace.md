@@ -160,7 +160,7 @@ VAR_INPUT  i_Enable : Bool;         // FALSE = congela (não escreve novo SP)
            i_SafeState : Bool;
 VAR_OUTPUT o_SetPointCmd : LReal;   // SP a escrever no %QD
            o_InPos : Bool;
-VAR        s_tDebounce : TON;
+VAR        s_tDebounce : TON_TIME;   // (TON_TIME — variante com PT:Time)
 ```
 > Em `i_SafeState` / `NOT i_Enable`: segura o último `o_SetPointCmd` (não comanda novo
 > destino) → "congela o eixo" da §3 do escopo.
@@ -173,11 +173,15 @@ VAR_INPUT  i_Trig : Bool;           // dispara a sequência de 180°
            i_SafeState : Bool;
 VAR_OUTPUT o_PulseCW,o_PulseCCW : Bool;
            o_Busy,o_Done : Bool;
-VAR        s_State : Int;           // 0 idle,1 pulso1,2 espera queda1,3 pulso2,4 espera queda2,5 done
-           s_fRot : F_TRIG;         // detecta queda de Rotating (90° concluído)
-           s_trig : R_TRIG;
-           s_tPulse : TON;          // largura mínima do pulso (≥1 scan / calibrar §9.2)
+VAR        s_State : Int := 0;     // 0 IDLE, 1 PULSE, 2 MOVING, 3 DONE (IMPLEMENTADO)
+           s_Dir   : Bool;          // sentido travado na partida
+           s_Count : Int := 0;      // incrementos de 90° concluídos (0..2)
+           s_trig  : R_TRIG;        // borda de subida do trigger
 ```
+> **IMPLEMENTADO (refinado vs. esboço):** sem `s_tPulse`/`s_fRot`. Pulso segurado até
+> `Rotating` subir (handshake) e a conclusão de cada 90° detectada por **nível gated por
+> estado** (`NOT i_Rotating` só no state 2). Resolve o item §9.2 da largura de pulso e a
+> corrida de borda. *(A validar no PLCSIM: debounce de `i_Rotating` p/ glitch — ver §9.2.)*
 
 ### 2.9 FB `FB_Conveyor`
 ```
@@ -280,10 +284,13 @@ checada a cada transição de movimento. Timeout `s_tStep` em cada passo de movi
 Em `i_SafeState` (E-Stop/Stop/Falha): **reset para passo 0** (não retoma no meio — §7.4);
 saídas de processo já zeradas pela máscara. Reinício só com novo gate.
 
-### 3.3 `FB_Rotate180` (sub-máquina)
-`0 idle → (trig) 1 pulso CW/CCW (TON largura) → 2 espera Rotating subir e cair (F_TRIG = 90°)
-→ 3 2º pulso → 4 espera 2ª queda (180°) → 5 o_Done`. `i_SafeState` → volta a 0, pulsos OFF.
-`o_Busy` em 1..4.
+### 3.3 `FB_Rotate180` (sub-máquina — IMPLEMENTADO)
+FSM de 4 estados com handshake por nível e contagem de 2×90°:
+`0 IDLE → (trig, NOT i_Rotating) 1 PULSE (segura pulso até Rotating subir) → 2 MOVING (pulso
+solto; espera NOT i_Rotating = 90° feito; s_Count++) → (s_Count<2: volta a 1; =2: vai a 3) →
+3 DONE (o_Done segura até i_Trig cair, handshake)`. `i_SafeState` (antes do CASE) → state 0,
+pulsos OFF no mesmo scan. `o_Busy` em 1–2. `ELSE` → 0 (estado inválido seguro).
+Detecção por **nível gated por estado** (sem F_TRIG global) — evita corrida/contagem espúria.
 
 ---
 
