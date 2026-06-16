@@ -106,20 +106,28 @@ VAR_INPUT  i_Volt:LReal; i_VMin:LReal; i_VMax:LReal; i_EngMin:LReal; i_EngMax:LR
 
 ### 2.4 FC `FC_IoMapInputs` / `FC_IoMapOutputs`
 ```
-// FC_IoMapInputs
-VAR_INPUT  i_EStop,i_Stop,i_Sensor,i_Start,i_Reset,i_Rotating,i_ItemDet : Bool;
-           i_Xpos,i_Zpos : LReal;       // %ID30,%ID34
-VAR_IN_OUT io_Station : typeStation;    // grava em Cmd.* / Sts.*
+// FC_IoMapInputs : Void  (IMPLEMENTADO)
+VAR_INPUT  i_EStop,i_Stop,i_Start,i_Reset,i_SensorBox,i_Rotating,i_ItemDetected : Bool;
+           i_Xpos,i_Zpos : Real;        // %ID30,%ID34 (FACTORY I/O entrega Real → convertido p/ LReal no .PV)
+VAR_IN_OUT io_Station : typeStation;    // grava em Cmd.* / Sts.* (cópia crua, sem inverter NF)
 
-// FC_IoMapOutputs
-VAR_INPUT  i_SafeState : Bool;          // máscara de estado seguro (E-Stop/Stop/Falha)
-VAR_IN_OUT io_Station : typeStation;
+// FC_IoMapOutputs : Void  (IMPLEMENTADO — decisão B: luzes + RotCW/CCW vêm por VAR_INPUT
+//   dos FBs; M1/M2/Grab/SP vêm do DB. typeStation NÃO ganhou campos.)
+VAR_INPUT  i_SafeState : Bool;          // máscara (FB_MachineMode.o_SafeState)
+           i_Red,i_Green,i_Yellow,i_ResetLite,i_StartLite,i_StopLite : Bool;  // de FB_MachineMode
+           i_RotCW,i_RotCCW : Bool;     // de FB_PickPlaceSeq
+VAR_IN_OUT io_Station : typeStation;    // lê Sts.M1Speed/M2Speed/VacuumOn/AxisX.SP/AxisZ.SP
 VAR_OUTPUT o_ResetLite,o_Red,o_Green,o_Yellow,o_StartLite,o_StopLite,o_Grab,
            o_RotCW,o_RotCCW,o_GripCW,o_GripCCW : Bool;
-           o_M1,o_M2,o_Xsp,o_Zsp : LReal;
+           o_M1,o_M2,o_Xsp,o_Zsp : Real;   // %QD são Real (LREAL_TO_REAL na escrita)
 ```
-> `FC_IoMapOutputs` zera fisicamente `o_M1/o_M2/o_Grab/o_RotCW/o_RotCCW` quando
-> `i_SafeState` — última barreira antes do periférico. `o_GripCW/CCW` sempre FALSE.
+> `FC_IoMapOutputs` zera fisicamente `o_M1/o_M2/o_Grab/o_RotCW/o_RotCCW` quando `i_SafeState`
+> — última barreira antes do periférico. `o_GripCW/CCW` sempre FALSE. **Não** mascara luzes
+> nem SP de eixo (sinalização precisa indicar emergência; SP é congelado pelo `FB_AxisPos`).
+> Exclusão mútua `RotCW⊻RotCCW` garantida (conflito → ambos FALSE).
+> **Carry-forward:** os FBs de processo escrevem `Sts.M1Speed/M2Speed/VacuumOn/AxisX-Z.SP` no
+> DB (via IN_OUT) antes do FC rodar — a definir nas interfaces de `FB_Conveyor`/`FB_AxisPos`/
+> `FB_PickPlaceSeq`.
 
 ### 2.5 FB `FB_ClockGen`
 ```
@@ -334,8 +342,8 @@ nos dois FCs, chamados só pelo `OB_Main`:
 
 **Entrada (`FC_IoMapInputs`, início do scan):**
 - `%I0.3 EStop → Cmd.EStop` · `%I0.7 Stop → Cmd.Stop` · `%I0.6 Start → Cmd.Start` ·
-  `%I0.4 Reset → Cmd.Reset` · `%I0.5 Sensor → Conveyor M1` · `%I1.0 Rotating → Sts.Rotating` ·
-  `%I1.1 ItemDetected → Sts.ItemDetected`.
+  `%I0.4 Reset → Cmd.Reset` · `%I0.5 Sensor_caixa → Sts.SensorBox` (campo novo; M1 lê do DB) ·
+  `%I1.0 Rotating → Sts.Rotating` · `%I1.1 ItemDetected → Sts.ItemDetected`.
 - `%ID30 X Position → Sts.AxisX.PV` · `%ID34 Z Position → Sts.AxisZ.PV`.
 
 **Saída (`FC_IoMapOutputs`, fim do scan, com máscara SafeState):**

@@ -1,0 +1,51 @@
+// FC_ScaleVolt: conversão linear de tensão para valor de engenharia com clamp.
+// Mapeia [i_VMin, i_VMax] → [i_EngMin, i_EngMax] usando NORM_X + SCALE_X + LIMIT.
+// Proteções: divisão por zero (faixa degenerada) e LIMIT com MN>MX (faixa invertida).
+FUNCTION "FC_ScaleVolt" : LReal
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+    VAR_INPUT
+        i_Volt : LReal;   // valor de entrada (V) a converter
+        i_VMin : LReal;   // limite inferior da faixa de entrada (V)
+        i_VMax : LReal;   // limite superior da faixa de entrada (V)
+        i_EngMin : LReal;   // valor de engenharia correspondente a i_VMin
+        i_EngMax : LReal;   // valor de engenharia correspondente a i_VMax
+    END_VAR
+
+    VAR_TEMP
+        t_norm : LReal;   // normalizado 0..1 (saída de NORM_X)
+        t_eng : LReal;   // resultado em engenharia antes do clamp
+        t_lo : LReal;   // menor extremo de engenharia (para LIMIT MN)
+        t_hi : LReal;   // maior extremo de engenharia (para LIMIT MX)
+    END_VAR
+
+BEGIN
+
+    REGION Protecao de faixa degenerada
+    // Se VMax = VMin a divisão no NORM_X seria por zero → retorna fallback seguro.
+        IF i_VMax = i_VMin THEN
+            #FC_ScaleVolt := i_EngMin;
+            RETURN;
+        END_IF;
+    END_REGION
+
+    REGION Escala linear
+    // Normaliza o valor de entrada para o intervalo 0..1
+        t_norm := NORM_X(MIN := i_VMin, VALUE := i_Volt, MAX := i_VMax);
+
+        // Escala o valor normalizado para a faixa de engenharia
+        t_eng := SCALE_X(MIN := i_EngMin, VALUE := t_norm, MAX := i_EngMax);
+    END_REGION
+
+    REGION Clamp robusto a faixa invertida
+    // LIMIT exige MN <= MX. Como i_EngMin pode ser > i_EngMax (mapeamento inverso,
+    // ex.: eixo Z onde maior tensão = posição mais baixa), calcula extremos primeiro.
+        t_lo := MIN(IN1 := i_EngMin, IN2 := i_EngMax);
+        t_hi := MAX(IN1 := i_EngMin, IN2 := i_EngMax);
+
+        // Aplica clamp garantindo que o resultado fique dentro dos extremos de engenharia
+        #FC_ScaleVolt := LIMIT(MN := t_lo, IN := t_eng, MX := t_hi);
+    END_REGION
+
+END_FUNCTION

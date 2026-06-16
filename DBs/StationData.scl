@@ -15,14 +15,15 @@ VERSION : 0.1
 // (FALSE = emergência/parar). O tratamento NF é responsabilidade dos consumidores
 // (FB_MachineMode e demais FBs). Este DB é apenas repositório — sem lógica.
 
-   STRUCT
-      Station : "typeStation";   // dados da estação: Cmd / Cfg / Sts
-   END_STRUCT;
+STRUCT
+    Station : "typeStation";   // dados da estação: Cmd / Cfg / Sts
+END_STRUCT
 
 BEGIN
-   // Start values herdados de typeStation.Cfg — os defaults do UDT já são adequados.
-   // Para personalizar por implantação (sem recompilar), descomente e ajuste:
-   // Station.Cfg.ConvSpeed      := 5.0;    // velocidade de regime das esteiras (V)
-   // Station.Cfg.SeqStepTimeout := T#30s;  // timeout de passo da sequência -> FALHA
+// Start values herdados de typeStation.Cfg — os defaults do UDT já são adequados.
+// Para personalizar por implantação (sem recompilar), descomente e ajuste:
+// Station.Cfg.ConvSpeed      := 5.0;    // velocidade de regime das esteiras (V)
+// Station.Cfg.SeqStepTimeout := T#30s;  // timeout de passo da sequência -> FALHA
+
 
 END_DATA_BLOCK

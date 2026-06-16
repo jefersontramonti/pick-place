@@ -1,11 +1,11 @@
 TYPE "typeAxis"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
-   STRUCT
-      SP       : LReal;              // setpoint comandado (V)
-      PV       : LReal;              // feedback de posição (V)
-      Tol      : LReal := 0.1;       // tolerância "em posição" (V)
-      Debounce : Time := T#200ms;    // tempo de estabilização do "em posição"
-      InPos    : Bool;               // status: eixo em posição
-   END_STRUCT;
+    STRUCT
+        SP : LReal;              // setpoint comandado (V)
+        PV : LReal;              // feedback de posição (V)
+        Tol : LReal := 0.1;       // tolerância "em posição" (V)
+        Debounce : Time := T#200ms;    // tempo de estabilização do "em posição"
+        InPos : Bool;               // status: eixo em posição
+    END_STRUCT;
 END_TYPE

@@ -1,51 +1,52 @@
 TYPE "typeStation"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
-   STRUCT
+    STRUCT
 
-      // Comandos: origem física (%I) ou HMI — consumidores tratam EStop/Stop como NF
-      Cmd : STRUCT
-         Start    : Bool;   // pulso de partida (origem %I0.6 ou HMI)
-         Stop     : Bool;   // FALSE = parar (NF)
-         EStop    : Bool;   // FALSE = emergência (NF)
-         Reset    : Bool;   // pulso de reset (R_TRIG no consumidor)
-         AutoMode : Bool;   // reservado para HMI (auto/manual)
-      END_STRUCT;
+    // Comandos: origem física (%I) ou HMI — consumidores tratam EStop/Stop como NF
+        Cmd : STRUCT
+            Start : Bool;   // pulso de partida (origem %I0.6 ou HMI)
+            Stop : Bool;   // FALSE = parar (NF)
+            EStop : Bool;   // FALSE = emergência (NF)
+            Reset : Bool;   // pulso de reset (R_TRIG no consumidor)
+            AutoMode : Bool;   // reservado para HMI (auto/manual)
+        END_STRUCT;
 
-      // Parametrização: start values definem calibração inicial (ajustáveis sem recompilar)
-      Cfg : STRUCT
-         Enabled        : Bool  := TRUE;       // habilita o ciclo
-         X_pick         : LReal := 7.7;        // setpoint X de pega (V)
-         X_place        : LReal := 6.8;        // setpoint X de deposito (V)
-         X_home         : LReal := 0.0;        // X recolhido (V)
-         Z_up           : LReal := 0.0;        // Z repouso/subido (V)
-         Z_place        : LReal := 7.0;        // Z de deposito (V)
-         Z_pickLimit    : LReal := 8.0;        // limite de descida na pega (V)
-         PosTol         : LReal := 0.1;        // tolerancia "em posicao" (V)
-         PosDebounce    : Time  := T#200ms;    // estabilizacao do "em posicao"
-         ConvSpeed      : LReal := 5.0;        // velocidade de regime das esteiras (V)
-         M1StopDelay    : Time  := T#500ms;    // atraso para parar M1 apos o sensor
-         SeqStepTimeout : Time  := T#30s;      // timeout de passo -> FALHA
-         ClkSlowHz      : LReal := 1.0;        // frequencia pisca lento (Hz)
-         ClkFastHz      : LReal := 3.0;        // frequencia pisca rapido (Hz)
-      END_STRUCT;
+    // Parametrização: start values definem calibração inicial (ajustáveis sem recompilar)
+        Cfg : STRUCT
+            Enabled : Bool := TRUE;       // habilita o ciclo
+            X_pick : LReal := 7.7;        // setpoint X de pega (V)
+            X_place : LReal := 6.8;        // setpoint X de deposito (V)
+            X_home : LReal := 0.0;        // X recolhido (V)
+            Z_up : LReal := 0.0;        // Z repouso/subido (V)
+            Z_place : LReal := 7.0;        // Z de deposito (V)
+            Z_pickLimit : LReal := 8.0;        // limite de descida na pega (V)
+            PosTol : LReal := 0.1;        // tolerancia "em posicao" (V)
+            PosDebounce : Time := T#200ms;    // estabilizacao do "em posicao"
+            ConvSpeed : LReal := 5.0;        // velocidade de regime das esteiras (V)
+            M1StopDelay : Time := T#500ms;    // atraso para parar M1 apos o sensor
+            SeqStepTimeout : Time := T#30s;      // timeout de passo -> FALHA
+            ClkSlowHz : LReal := 1.0;        // frequencia pisca lento (Hz)
+            ClkFastHz : LReal := 3.0;        // frequencia pisca rapido (Hz)
+        END_STRUCT;
 
-      // Status: lido pela HMI e pelos FBs de controle
-      Sts : STRUCT
-         Mode         : Int;          // 0=PARADO 1=RODANDO 2=EMERGENCIA 3=FALHA
-         Step         : Int;          // passo atual da sequencia (0..16)
-         AxisX        : "typeAxis";   // eixo X (SP/PV/Tol/Debounce/InPos)
-         AxisZ        : "typeAxis";   // eixo Z
-         BoxAtPick    : Bool;         // OK da esteira (caixa posicionada)
-         ItemDetected : Bool;         // %I1.1 espelhado
-         Rotating     : Bool;         // %I1.0 espelhado
-         VacuumOn     : Bool;         // estado do Grab
-         M1Speed      : LReal;        // velocidade aplicada a M1 (V)
-         M2Speed      : LReal;        // velocidade aplicada a M2 (V)
-         Fault        : Bool;         // falha ativa (travada)
-         FaultCode    : Int;          // 0=ok 1=timeout X 2=timeout Z 3=timeout rotacao 4=Z limite s/ItemDet 5=caixa nao liberada
-         CycleCount   : DInt;         // contador de ciclos concluidos
-      END_STRUCT;
+    // Status: lido pela HMI e pelos FBs de controle
+        Sts : STRUCT
+            Mode : Int;          // 0=PARADO 1=RODANDO 2=EMERGENCIA 3=FALHA
+            Step : Int;          // passo atual da sequencia (0..16)
+            AxisX : "typeAxis";   // eixo X (SP/PV/Tol/Debounce/InPos)
+            AxisZ : "typeAxis";   // eixo Z
+            BoxAtPick : Bool;         // OK da esteira (caixa posicionada)
+            ItemDetected : Bool;         // %I1.1 espelhado
+            Rotating : Bool;         // %I1.0 espelhado
+            SensorBox : Bool;         // %I0.5 espelhado — feixe interrompido (caixa presente na M1)
+            VacuumOn : Bool;         // estado do Grab
+            M1Speed : LReal;        // velocidade aplicada a M1 (V)
+            M2Speed : LReal;        // velocidade aplicada a M2 (V)
+            Fault : Bool;         // falha ativa (travada)
+            FaultCode : Int;          // 0=ok 1=timeout X 2=timeout Z 3=timeout rotacao 4=Z limite s/ItemDet 5=caixa nao liberada
+            CycleCount : DInt;         // contador de ciclos concluidos
+        END_STRUCT;
 
-   END_STRUCT;
+    END_STRUCT;
 END_TYPE

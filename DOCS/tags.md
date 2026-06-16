@@ -32,7 +32,7 @@
 |---|---|---|---|---|
 | `Emergency Stop 0` | `%I0.3` | Bool | **NF** | Emergência geral — `FALSE` = emergência/fio rompido |
 | `Reset Button 0` | `%I0.4` | Bool | NA | Reset de máquina/alarmes/erros (**pulso**, `R_TRIG`) |
-| `Sensor_caixa` | `%I0.5` | Bool | NA | Sensor **retrorreflexivo** na esteira **M1**: `TRUE`=feixe interrompido (caixa presente); borda de descida = caixa passou |
+| `Sensor_caixa` | `%I0.5` | Bool | NA | Sensor **retrorreflexivo** na esteira **M1**: `TRUE`=feixe interrompido (caixa presente); borda de descida = caixa passou. **Espelhado** em `StationData.Station.Sts.SensorBox` via `FC_IoMapInputs` |
 | `Start Button 0` | `%I0.6` | Bool | NA | Botão **Liga** |
 | `Stop Button 0` | `%I0.7` | Bool | **NF** | Botão **Desliga** — `FALSE` = pressionado |
 | `Two-Axis Pick & Place 0 (Rotating)` | `%I1.0` | Bool | NA | Braço em rotação (feedback de movimento) |
@@ -72,6 +72,9 @@
 
 > ⚠️ **Exclusão mútua:** `Rotate CW`/`Rotate CCW` e `Gripper CW`/`Gripper CCW` **nunca**
 > energizados simultaneamente (intertravar no código).
+>
+> ℹ️ **Escrita:** todas as saídas digitais são escritas via `FC_IoMapOutputs` no fim do scan (ver
+> §6.2). Luzes são repassadas sem máscara; rotação, vácuo e gripper são mascarados em estado seguro.
 
 ---
 
@@ -86,6 +89,9 @@
 
 > **M1/M2 são analógicas:** "ligar" = escrever a velocidade de regime (tensão a definir);
 > "desligar" = escrever `0.0`. Não são bits on/off.
+>
+> ℹ️ **Escrita:** M1/M2 são mascarados em estado seguro (→ 0.0 V); setpoints de eixo (X/Z) são
+> repassados sem máscara (já congelados pelo `FB_AxisPos`). Todas via `FC_IoMapOutputs` (ver §6.2).
 
 ---
 
@@ -103,6 +109,61 @@
 
 > Bytes de entrada digital usados: `%IB0` (bits 3–7) e `%IB1` (bits 0–2).
 > Bytes de saída digital usados: `%QB0` (bits 3–7) e `%QB1` (bits 0–5).
+
+### 6.1 Roteamento centralizado de entradas (`FC_IoMapInputs`)
+
+**Todas as entradas físicas** (`%I0.3–%I1.2`, `%ID30`, `%ID34`) são lidas num **ponto único**
+no início do scan: a **função `FC_IoMapInputs`** (chamada no começo do `OB_Main`). Esta FC:
+
+- **Lê os bits/valores brutos** das entradas físicas (sem inversão, sem condicional, sem máscara);
+- **Escreve para `StationData.Station`** via `VAR_IN_OUT`:
+  - `Cmd.*` (EStop, Stop, Start, Reset) — **cópia crua, NF/NA preservados**;
+  - `Sts.*` (Rotating, ItemDetected, SensorBox) — espelhos de feedback;
+  - `Sts.AxisX.PV`, `Sts.AxisZ.PV` — posições (conversão `Real→LReal`).
+
+**Garantias de segurança:** cópia fiel dos sinais de emergência (`%I0.3 EStop`, `%I0.7 Stop`),
+nenhuma inversão ou condicionalidade aqui (a interpretação NF e o latch são exclusivos do
+`FB_MachineMode`). Assim, a máquina **nunca esconde/atrasa uma emergência**.
+
+**Impacto:** não há "lógica de entrada" espalhada pelo código; toda mudança em endereços
+`%I`/`%ID` é feita aqui, com sincronização automática para o DB de dados.
+
+### 6.2 Roteamento centralizado de saídas (`FC_IoMapOutputs`)
+
+**Todas as saídas físicas** (`%Q0.3–%Q1.5`, `%QD30/34/38/42`) são **escritas num ponto único** no
+fim do scan (após cálculos de processo): a função `FC_IoMapOutputs` (chamada no final do `OB_Main`).
+Esta FC é a **última barreira fail-safe** de hardware, implementando:
+
+**Máscara de estado seguro** (`i_SafeState` = `TRUE` → emergência/parado/falha):
+- **Zeragem de processo:** `M1:=0.0`, `M2:=0.0`, `Grab:=FALSE`, `RotCW/RotCCW:=FALSE`.
+- **Sinalização (luzes) NÃO mascarada:** `ResetLite`, `Red`, `Green`, `Yellow`, `StartLite`,
+  `StopLite` são repassadas **sem filtro** (precisam indicar emergência/parado; zerar a torre em
+  emergência cairia em anti-fail-safe).
+- **Setpoints de eixo (X/Z) NÃO mascarados:** `FB_AxisPos` já congela o SP em sua própria saída;
+  o FC só repassa. Forçar SP=0 V em emergência mandaria o eixo correr para zero (movimento
+  perigoso) — incorreto.
+
+**Exclusão mútua de rotação:** `RotCW` e `RotCCW` **nunca energizados simultaneamente** (o FC
+valida: conflito → ambos FALSE, estado seguro).
+
+**Fontes das saídas (assimetria vs. FC_IoMapInputs):**
+- **VAR_INPUT (vêm direto dos FBs, repassados pelo OB):** as 6 luzes (`i_Red`, `i_Green`,
+  `i_Yellow`, `i_ResetLite`, `i_StartLite`, `i_StopLite`) via `FB_MachineMode`, mais
+  `i_RotCW`/`i_RotCCW` via `FB_PickPlaceSeq`. São transitórios/derivados de `Mode` — sem campo
+  permanente no DB.
+- **DB (`io_Station.Sts.*`):** `M1Speed`, `M2Speed`, `VacuumOn`, `AxisX.SP`, `AxisZ.SP`.
+  Já existem no schema; são estado de processo que a HMI enxerga. O FC lê, converte `LReal→Real`
+  (estreitamento: tensões 0–10 V cabem em Real), e escreve `%QD30/34/38/42`.
+
+**Garantias de segurança:**
+1. Em `i_SafeState`: M1/M2/Grab/RotCW/RotCCW zerados mesmo se um FB a montante falhar em
+   auto-proteger.
+2. Gripper (`o_GripCW`/`o_GripCCW`) intertravado: **sempre FALSE** (não usado no projeto).
+3. **Sem inversion lógica** aqui: cópia fiel dos sinais brutos dos FBs; a semântica
+   (E-Stop NF, máscara condicional) é gerenciada pelos FBs.
+
+**Impacto:** todas as saídas físicas mudam num ponto único, no final do ciclo. Isolamento total do
+endereçamento `%Q`/`%QD`. Garantia fail-safe mesmo com falha isolada de um FB intermediário.
 
 ---
 
@@ -146,6 +207,10 @@
 
 ## 9. Notas de engenharia
 
+- **Leitura centralizada de E/S:** `FC_IoMapInputs` (stateless) roteia **todas** as entradas
+  (`%I`/`%ID`) para `StationData.Station` no início de cada ciclo; `FC_IoMapOutputs` escreve
+  as saídas (`%Q`/`%QD`) ao final (após cálculos e máscara de segurança). Isolamento total do
+  endereçamento físico.
 - **Comandos de operador:** Liga/Desliga/Emergência/Reset são entradas físicas
   (`%I0.6`/`%I0.7`/`%I0.3`/`%I0.4`); Reset é pulso (`R_TRIG`).
 - **Escala analógica:** posições e velocidades são tensões 0–10 V; usar `NORM_X`/`SCALE_X`

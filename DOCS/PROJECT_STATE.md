@@ -11,8 +11,9 @@
 ## Estado atual
 
 - **Projeto atual: estação Two-Axis Pick & Place** (FACTORY I/O v2.5.10 ↔ S7-PLCSIM).
-  **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl` e
-  `DBs/StationData.scl` criados e validados no linter (MCP limpo); demais pastas ainda
+  **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl`,
+  `DBs/StationData.scl`, `FCs/FC_ScaleVolt.scl`, `FCs/FC_IoMapInputs.scl` e
+  `FCs/FC_IoMapOutputs.scl` criados e validados no linter (MCP limpo); `OBs/` e `FBs/` ainda
   vazias. Escopo em
   `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
   `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
@@ -32,7 +33,8 @@
 - **Arquitetura:** plano completo em `DOCS/ARQUITETURA_PickPlace.md` (13 blocos: OB_Main,
   FB_MachineMode, FB_PickPlaceSeq, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_ClockGen, FCs de
   I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
-  `typeAxis`, `typeStation`, `StationData`. **Próximo:** FCs (`FC_ScaleVolt`, `FC_IoMap*`).
+  `typeAxis`, `typeStation` (+`Sts.SensorBox`), `StationData`, `FC_ScaleVolt`,
+  `FC_IoMapInputs`, `FC_IoMapOutputs`. **Próximo:** `FB_ClockGen` (1º FB com estado).
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
   PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
@@ -183,9 +185,13 @@
 - Nada crítico. Docs vivos (`PROJECT_STATE.md`, `CLAUDE.md`) reconciliados após criar os UDTs.
 
 ### Próximos passos
-- Continuar a implementação na ordem da `ARQUITETURA_PickPlace.md` §8: **próximo = DB
-  `StationData`**; depois `FC_ScaleVolt`, `FC_IoMapInputs/Outputs`, `FB_ClockGen`, `FB_AxisPos`,
-  `FB_Rotate180`, `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`.
+- Continuar a implementação na ordem da `ARQUITETURA_PickPlace.md` §8: **próximo =
+  `FB_ClockGen`** (1º FB com estado); depois `FB_AxisPos`, `FB_Rotate180`, `FB_Conveyor`,
+  `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`.
+- **Carry-forward (FC_IoMapOutputs):** os FBs de processo (`FB_Conveyor`/`FB_AxisPos`/
+  `FB_PickPlaceSeq`) devem **escrever** `Sts.M1Speed/M2Speed/VacuumOn/AxisX-Z.SP` no DB (via
+  IN_OUT) antes do FC de saída rodar (ele só LÊ esses campos). O `FB_MachineMode` produz
+  `o_SafeState` (entrada da máscara) e as 6 luzes (VAR_INPUT do FC de saída).
 - **Carry-forward do revisor:** no `FB_AxisPos`, usar `Cfg.PosTol`/`Cfg.PosDebounce` como
   fonte única da tolerância/debounce do eixo (evita divergir dos defaults de `typeAxis`).
 - **Safety no consumidor:** ao implementar `FB_MachineMode`, o safety-auditor valida o
