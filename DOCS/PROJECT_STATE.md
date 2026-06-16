@@ -11,9 +11,11 @@
 ## Estado atual
 
 - **Projeto atual: estação Two-Axis Pick & Place** (FACTORY I/O v2.5.10 ↔ S7-PLCSIM).
-  Em **fase de especificação** — pastas `OBs/ FBs/ DBs/ UDTs/` **vazias** (sem código SCL
-  ainda). Escopo completo em `DOCS/ESCOPO_PickPlace.md`; I/O em `DOCS/tags.md`; componentes
-  FACTORY I/O em `DOCS/Componentes_FactoryIO.md`.
+  **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl` e
+  `DBs/StationData.scl` criados e validados no linter (MCP limpo); demais pastas ainda
+  vazias. Escopo em
+  `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
+  `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
 - **Transição (2026-06-16):** removido TODO o código SCL do subsistema antigo (20 motores +
   2 reguladores ITV/PID — `FB_Motor`, `FB_MotorGroup`, `FB_PID`, `FB_Regulator`,
   `FB_RegGroup`, `MotorData`, `RegData`, `typeMotor`, `typeRegulator`, `typePidParams`,
@@ -27,13 +29,15 @@
 - **Eixos X/Z:** **posicionamento analógico** (setpoint/feedback em tensão 0–10 V), **NÃO**
   Technology Objects/`MC_*`. Rotação do braço **por pulso** (`Rotate CW/CCW` borda, 1 pulso =
   90°; 180° = 2 pulsos). Gripper não usado.
-- **Arquitetura proposta (§10 do escopo):** `OB_Main` (OB1) + `FB_MachineMode`,
-  `FB_PickPlaceSeq`, `FB_AxisPos`, `FB_Rotate180`, `FB_Conveyor` + UDT `typeStation` e DB
-  global. Nada implementado ainda.
+- **Arquitetura:** plano completo em `DOCS/ARQUITETURA_PickPlace.md` (13 blocos: OB_Main,
+  FB_MachineMode, FB_PickPlaceSeq, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_ClockGen, FCs de
+  I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
+  `typeAxis`, `typeStation`, `StationData`. **Próximo:** FCs (`FC_ScaleVolt`, `FC_IoMap*`).
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
-  PostToolUse validate). Doc em `DOCS/AGENT_ARCHITECTURE.md` e seção "Equipe de agentes" do
-  `CLAUDE.md`. `motion-specialist`/skill `motion-control` em **standby** (projeto usa
-  posicionamento analógico; usar só se entrarem eixos TO reais).
+  PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
+  (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
+  `DOCS/GUIA_AGENTES.md` (local) e seção "Equipe de agentes" do `CLAUDE.md`.
+  `motion-specialist`/skill `motion-control` em **standby** (posicionamento analógico).
 
 ## Log de sessões
 
@@ -147,8 +151,16 @@
 ## Sessão 2026-06-16
 
 ### Blocos criados/modificados
-- Nenhum bloco SCL. **Removido** todo o código antigo (10 arquivos `.scl`: motores +
-  reguladores). Pastas de bloco esvaziadas (convenção mantida).
+- **Removido** todo o código antigo (10 arquivos `.scl`: motores + reguladores); pastas de
+  bloco esvaziadas (convenção mantida).
+- **Criados e validados (MCP limpo):** `UDTs/typeAxis.scl` e `UDTs/typeStation.scl`, via
+  `/new-block` (pipeline architect→handoff→developer→reviewer). Início da implementação.
+- `DOCS/ARQUITETURA_PickPlace.md` — NOVO. Blueprint do `scl-architect` (13 blocos, interfaces,
+  FSMs, ordem de build §8).
+- `DOCS/GUIA_AGENTES.md` — NOVO (local/gitignored). Guia didático do sistema de agentes (vídeo).
+- `.claude/hooks/memory-update-reminder.ps1` + `settings.json` — NOVO hook **PreCompact**
+  (lembra de persistir memória antes da compactação). Permissões "autônomo mas limitado".
+- Memória persistente reescrita (projeto = Pick & Place) + nova feedback `keep-context-in-sync`.
 - `CLAUDE.md` — reescrito para o escopo Pick & Place; adicionada seção "Equipe de agentes".
 - `DOCS/ESCOPO_PickPlace.md` — NOVO. Especificação completa: processo, mapa de I/O,
   estados da máquina, sequência (PICK 1–7 / PLACE 8–16), intertravamentos (§7), comandos,
@@ -168,10 +180,14 @@
 - Z: maior tensão = mais descido (0 V topo). Setpoints iniciais propostos (calibrar no sim).
 
 ### Bugs encontrados e resoluções
-- Nada (sessão de limpeza + especificação, sem código).
+- Nada crítico. Docs vivos (`PROJECT_STATE.md`, `CLAUDE.md`) reconciliados após criar os UDTs.
 
 ### Próximos passos
+- Continuar a implementação na ordem da `ARQUITETURA_PickPlace.md` §8: **próximo = DB
+  `StationData`**; depois `FC_ScaleVolt`, `FC_IoMapInputs/Outputs`, `FB_ClockGen`, `FB_AxisPos`,
+  `FB_Rotate180`, `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`.
+- **Carry-forward do revisor:** no `FB_AxisPos`, usar `Cfg.PosTol`/`Cfg.PosDebounce` como
+  fonte única da tolerância/debounce do eixo (evita divergir dos defaults de `typeAxis`).
+- **Safety no consumidor:** ao implementar `FB_MachineMode`, o safety-auditor valida o
+  tratamento NF de `Cmd.EStop`/`Cmd.Stop` (latch, prioridade, reset por borda).
 - Fechar §9.2 do escopo no PLCSIM (largura do pulso de rotação, valores exatos, polaridade).
-- Implementar via `/new-block` começando pelas primitivas reutilizáveis: `FB_AxisPos` e
-  `FB_Rotate180`, depois `FB_Conveyor`, `FB_PickPlaceSeq`, `FB_MachineMode`, `OB_Main`.
-- Criar `typeStation` (UDT) + DB global da estação.

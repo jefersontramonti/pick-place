@@ -5,3 +5,6 @@
 # OS
 Thumbs.db
 .DS_Store
+
+# Documento local (não versionar) — material de apoio para vídeo
+DOCS/GUIA_AGENTES.md

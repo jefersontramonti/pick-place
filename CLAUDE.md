@@ -49,9 +49,9 @@ WebStorm (`.idea/`).
 aula01/
 ├─ OBs/          (vazio — a criar: OB_Main / OB1)
 ├─ FBs/          (vazio — a criar: ver arquitetura proposta abaixo)
-├─ DBs/          (vazio — a criar: DB global da estação)
-├─ UDTs/         (vazio — a criar: typeStation, etc.)
-├─ DOCS/         ESCOPO_PickPlace.md (especificação) + manuais SCL + export de tags
+├─ DBs/          (vazio — a criar: DB global StationData)
+├─ UDTs/         typeAxis.scl, typeStation.scl (criados) — base do typeStation
+├─ DOCS/         ESCOPO + ARQUITETURA + tags + manuais SCL + export de tags
 └─ .claude/      agentes, comandos e skills (mantidos)
 ```
 
@@ -88,6 +88,9 @@ Sempre seguir a sintaxe dos manuais ao escrever SCL:
 - **`ESCOPO_PickPlace.md`** — **especificação do projeto atual**: processo, mapa de I/O,
   sequência passo a passo, intertravamentos, sinalização e pontos a confirmar. Manter
   sincronizado com as interfaces dos blocos ao implementar.
+- **`ARQUITETURA_PickPlace.md`** — **plano de arquitetura** (do `scl-architect`): 13 blocos,
+  interfaces, máquinas de estado, ordem de chamada no OB, onde cada intertravamento vive e a
+  ordem de implementação. Blueprint a seguir no `/new-block`.
 - **`Componentes_FactoryIO.md`** — referência dos componentes FACTORY I/O da cena
   (Emergency Stop, botoeiras, Stack Light, sensor retrorreflexivo) mapeados às tags do
   projeto, com polaridades NC/NO e cores IEC 60204‑1.
@@ -105,8 +108,27 @@ Outros documentos de apoio em `DOCS/`:
 - **`PROJECT_STATE.md`** — histórico cronológico de decisões e log de sessões (lido pelos
   subagentes). Alimentado por `/wrap-session`.
 - **`AGENT_ARCHITECTURE.md`** — design da arquitetura de subagentes/comandos/skills.
-- **`tags.md`** — ⚠️ **legado** do subsistema antigo (motores/reguladores). Substituído por
-  `ESCOPO_PickPlace.md`; manter só como referência histórica ou remover.
+- **`tags.md`** — **mapa de I/O atual** (Pick & Place): tags físicas, polaridades, mapa de
+  endereços, sinalização e setpoints iniciais. Sincronizar com a I/O via `/io-sync`.
+
+### Documentos vivos (manter sincronizados)
+
+A "cadeia de contexto" lida pelos subagentes precisa estar sempre atual — atualizar **antes
+de seguir** para a próxima tarefa (ver memória `keep-context-in-sync`):
+
+| Documento | Atualizar quando… |
+|---|---|
+| `DOCS/PROJECT_STATE.md` | mudou o estado / fim de sessão (`/wrap-session`) — **lido pelos subagentes** |
+| `CLAUDE.md` | decisão ou estrutura **permanente** mudou (I/O, convenção, equipe, estrutura de pastas) |
+| `.claude/handoff.md` | a cada `/new-block` (bloco em andamento) |
+| memória (`MEMORY.md` + arquivos) | um fato **durável** mudou (cross-sessão) |
+| `DOCS/tags.md` | a **I/O** mudou (`/io-sync`) |
+| `DOCS/ESCOPO_PickPlace.md` | a **especificação** de processo mudou |
+| `DOCS/ARQUITETURA_PickPlace.md` | a **interface/arquitetura** de blocos mudou |
+| `DOCS/COMANDOS.md` · `AGENT_ARCHITECTURE.md` | comandos/infra de agentes mudaram |
+
+Estáticos (não precisam manutenção): `scl4.md`, `creating SCL programs.md` (manuais),
+`Componentes_FactoryIO.md`, `Tags_New Scene_*.xml` (export fonte), `GUIA_AGENTES.md` (local).
 
 ## Convenções de código SCL
 
@@ -200,7 +222,8 @@ valida) · `motion-control` (TO/`MC_*` — standby, ver acima).
 
 ### Hooks (`.claude/settings.json`) e MCP
 - **SessionStart** injeta o target real (1518T V3.1, S7-1500). **PostToolUse (Write|Edit)**
-  lembra de validar `.scl` no MCP.
+  lembra de validar `.scl` no MCP. **SessionStart (compact|resume)** lembra de reconciliar a
+  memória + `PROJECT_STATE.md` após compactação/retomada do contexto.
 - **MCP WebStorm SCL** dá percepção real: `scl_project_summary` (sempre primeiro),
   `scl_list_blocks`, `scl_get_interface`, `scl_validate_file`, `scl_generate_fb`,
   `scl_read_io_list`. **Regra de ouro:** todo bloco `.scl` criado/editado é **validado no MCP**

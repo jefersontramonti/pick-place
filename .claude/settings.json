@@ -37,6 +37,15 @@
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maninho\\Desktop\\aula01\\.claude\\hooks\\session-start.ps1\""
           }
         ]
+      },
+      {
+        "matcher": "compact|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maninho\\Desktop\\aula01\\.claude\\hooks\\memory-update-reminder.ps1\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
