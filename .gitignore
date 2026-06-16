@@ -1,0 +1,7 @@
+# WebStorm / IDE — estado volátil do usuário (mantém os configs de target SCL do .idea)
+.idea/workspace.xml
+.idea/shelf/
+
+# OS
+Thumbs.db
+.DS_Store

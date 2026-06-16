@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "mcp__webstorm__scl_project_summary",
+      "mcp__webstorm__scl_list_blocks",
+      "mcp__webstorm__scl_get_interface",
+      "mcp__webstorm__scl_read_io_list",
+      "mcp__webstorm__scl_validate_file",
+      "mcp__webstorm__scl_generate_fb",
+      "Edit(OBs/**)",
+      "Write(OBs/**)",
+      "Edit(FBs/**)",
+      "Write(FBs/**)",
+      "Edit(FCs/**)",
+      "Write(FCs/**)",
+      "Edit(DBs/**)",
+      "Write(DBs/**)",
+      "Edit(UDTs/**)",
+      "Write(UDTs/**)",
+      "Edit(DOCS/**)",
+      "Write(DOCS/**)",
+      "Edit(.claude/handoff.md)",
+      "Write(.claude/handoff.md)"
+    ],
+    "ask": [],
+    "deny": []
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maninho\\Desktop\\aula01\\.claude\\hooks\\session-start.ps1\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maninho\\Desktop\\aula01\\.claude\\hooks\\scl-validate-reminder.ps1\""
+          }
+        ]
+      }
+    ]
+  }
+}

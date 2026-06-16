@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SclCpuSettings">
+    <option name="cpuFamily" value="S7_1500" />
+    <option name="firmwareVersion" value="S7_1500_ANY" />
+  </component>
+</project>
