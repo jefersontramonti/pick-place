@@ -14,8 +14,9 @@
   **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl`,
   `DBs/StationData.scl`, `FCs/FC_ScaleVolt.scl`, `FCs/FC_IoMapInputs.scl`,
   `FCs/FC_IoMapOutputs.scl`, `FBs/FB_ClockGen.scl`, `FBs/FB_AxisPos.scl` e
-  `FBs/FB_Rotate180.scl`, `FBs/FB_Conveyor.scl` e `FBs/FB_MachineMode.scl` criados e validados
-  no linter (MCP limpo); `OBs/` vazia, faltam `FB_PickPlaceSeq` e `OB_Main`. Escopo em
+  `FBs/FB_Rotate180.scl`, `FBs/FB_Conveyor.scl`, `FBs/FB_MachineMode.scl` e
+  `FBs/FB_PickPlaceSeq.scl` criados e validados no linter (MCP limpo); **falta só**
+  `OBs/OB_Main.scl` (o OB orquestrador). Escopo em
   `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
   `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
 - **Transição (2026-06-16):** removido TODO o código SCL do subsistema antigo (20 motores +
@@ -36,7 +37,7 @@
   I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
   `typeAxis`, `typeStation` (+`Sts.SensorBox`), `StationData`, `FC_ScaleVolt`,
   `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_ClockGen`, `FB_AxisPos`, `FB_Rotate180`,
-  `FB_Conveyor`, `FB_MachineMode`. **Próximo:** `FB_PickPlaceSeq`.
+  `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`. **Próximo (último):** `OB_Main`.
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
   PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
@@ -214,3 +215,14 @@
   **congela** no 1º código; CLEAR só no **próprio reset** = borda de `i_Reset` **E** `i_EStop`
   rearmado (NOT i_SafeState), **clear-antes-do-set**, voltando a passo 0. O `FB_MachineMode`
   liga `i_SeqFault := o_Fault` (nível) e só reflete (FALHA por nível). Sem double-latch.
+- **`FB_PickPlaceSeq` FEITO** (revisão pegou 1 CRÍTICO + 1 ALTO, corrigidos): interface por
+  `io_Station` IN_OUT; FSM 0..16+99; multi-instancia AxisX/Z + RotCW/CCW; latch único
+  (`o_Fault` nível, CLEAR = `s_rReset.Q AND i_EStop`); `s_stepIsMove` fora da guarda (timeout
+  cobre a espera); R1 captura PV no contato; vácuo na FALHA = decisão **(i) soltar** (FSM zera
+  `s_grab` no safe; FC mascara Grab) — *usuário pode trocar p/ (ii) segurar (muda máscara do FC)*.
+- **Carry-forward `OB_Main` (último bloco):** chamar (ordem §4) FC_IoMapInputs → ClockGen →
+  MachineMode → Conveyor M1/M2 → PickPlaceSeq → FC_IoMapOutputs. Fiar
+  `PickPlaceSeq.i_EStop := Station.Cmd.EStop` (mesma fonte do MachineMode.i_EStop),
+  `i_Reset := Cmd.Reset`, `io_Station := "StationData".Station`, `o_Fault → MachineMode.i_SeqFault`,
+  `o_RotCW/CCW → FC_IoMapOutputs`, `o_ReleaseM1 → Conveyor M1.i_Release`, `o_PauseM2 → Conveyor M2.i_ForcePause`.
+  DB de instância e tags físicas: criados no TIA Portal.

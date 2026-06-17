@@ -211,33 +211,35 @@ VAR        s_fSensor : F_TRIG;  s_rRel : R_TRIG;  s_tDelay : TON_TIME;
 > que o espaçamento das caixas garante o sensor livre no release, e que `o_ReleaseM1` segura
 > nível durante todo o passo 5.
 
-### 2.10 FB `FB_PickPlaceSeq`
+### 2.10 FB `FB_PickPlaceSeq`  (IMPLEMENTADO — interface por io_Station IN_OUT)
 ```
-VAR_INPUT  i_Run : Bool;            // RODANDO
-           i_Enabled : Bool;        // Cfg.Enabled
-           i_SafeState : Bool;
-           i_BoxAtPick : Bool;      // OK da esteira (de FB_Conveyor M1)
-           i_ItemDetected : Bool;   // %I1.1
-           i_Rotating : Bool;       // %I1.0
-           i_Xpv,i_Zpv : LReal;     // feedbacks
-           i_Xpick,i_Xplace,i_Xhome,i_Zup,i_Zplace,i_ZpickLimit,i_Tol : LReal;
-           i_Debounce,i_StepTimeout : Time;
-VAR_OUTPUT o_Xsp,o_Zsp : LReal;     // setpoints de eixo
-           o_Grab : Bool;
-           o_RotCW,o_RotCCW : Bool;
-           o_ReleaseM1 : Bool;      // passo 5: religa M1
-           o_PauseM2 : Bool;        // passos 9..13
-           o_Step : Int;
-           o_Fault : Bool;  o_FaultCode : Int;
-           o_CycleDone : Bool;
-VAR        s_State : Int;           // 0..16 (passos) + ESPERA/FALHA
-           s_AxisX : FB_AxisPos;    // multi-instância
-           s_AxisZ : FB_AxisPos;
-           s_RotCW : FB_Rotate180;
-           s_RotCCW: FB_Rotate180;
-           s_tStep : TON;           // timeout de passo
-           s_zDescending : Bool;
+VAR_INPUT  i_Run : Bool;            // RODANDO (FB_MachineMode.o_Run)
+           i_SafeState : Bool;      // estado seguro (FB_MachineMode.o_SafeState)
+           i_Reset : Bool;          // NO — pulso de reset (Cmd.Reset)
+           i_EStop : Bool;          // NF — E-Stop rearmado (Cmd.EStop) — gate do CLEAR do latch
+VAR_OUTPUT o_RotCW,o_RotCCW : Bool; // -> FC_IoMapOutputs
+           o_ReleaseM1 : Bool;      // -> Conveyor M1 (passo 5, nível)
+           o_PauseM2 : Bool;        // -> Conveyor M2 (passos 9..13, nível)
+           o_Fault : Bool;          // -> FB_MachineMode.i_SeqFault (NÍVEL latcheado)
+           o_FaultCode : Int;       // congela no 1º código (1..5)
+           o_CycleDone : Bool;      // pulso 1 scan (passo 16)
+VAR_IN_OUT io_Station : "typeStation";   // lê Cfg/Sts, escreve Sts (SP/InPos/VacuumOn/Step/Fault/CycleCount)
+VAR        s_State : Int;           // 0=IDLE, 1..16 passos, 99=FALHA
+           s_AxisX,s_AxisZ : "FB_AxisPos";    // multi-instância (chamados todo scan, após o CASE)
+           s_RotCW,s_RotCCW : "FB_Rotate180";
+           s_tStep : TON_TIME;      // timeout de passo (Cfg.SeqStepTimeout)
+           s_Fault : Bool;  s_FaultCode : Int;  s_rReset : R_TRIG;
+           s_xEnable,s_zEnable : Bool;  s_xTarget,s_zTarget : LReal;
+           s_trigCW,s_trigCCW,s_grab : Bool;  s_PrevState : Int;  s_stepIsMove : Bool;
 ```
+> **Mudanças vs. esboço:** interface por **`io_Station` IN_OUT** (não ~30 escalares); `s_tStep :
+> TON_TIME`; `s_State=99` p/ FALHA; intermediários (`s_xEnable/.../s_grab`) separam "decisão por
+> passo" da "chamada incondicional". **Latch de falha ÚNICO aqui** (`o_Fault` nível; CLEAR =
+> `s_rReset.Q AND i_EStop` — rearme físico do E-Stop, NÃO `NOT i_SafeState`, que causaria
+> deadlock). **`s_stepIsMove` no topo de cada passo de movimento** (fora da guarda) p/ o timeout
+> cobrir a espera. **R1 anti-esmagamento:** passo 2 captura `Sts.AxisZ.PV` no `ItemDetected`.
+> **Vácuo na FALHA/safe:** decisão (i) — soltar a peça (FC mascara `Grab`; FSM zera `s_grab` no
+> estado seguro p/ coerência). *(Alternativa (ii) "segurar a peça" = não mascarar Grab no FC.)*
 
 ---
 

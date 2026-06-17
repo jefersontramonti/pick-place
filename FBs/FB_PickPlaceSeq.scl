@@ -1,0 +1,346 @@
+FUNCTION_BLOCK "FB_PickPlaceSeq"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+// FB_PickPlaceSeq: topo da logica de processo. Maquina de estados (FSM) do ciclo
+// Pick & Place (0 IDLE, 1..16 passos, 99 FALHA). Multi-instancia FB_AxisPos x2 (X,Z)
+// e FB_Rotate180 x2 (CW,CCW), aplica anticolisao (rotacionar so Z up + X home + NOT
+// Rotating; mover X so com Z up; descer Z so com X em posicao), comanda o vacuo, religa
+// M1 (passo 5) e pausa M2 (9..13). E a FONTE UNICA do latch de falha (o_Fault nivel +
+// o_FaultCode congelado, clear so no proprio reset). Interface por io_Station (IN_OUT):
+// le Cfg.*/Sts.* e escreve Sts.* direto no DB. Instancia unica chamada pelo OB_Main
+// (nao chamar aqui). Fonte: ARQUITETURA_PickPlace.md §2.10/§3.2 + handoff scl-architect.
+    VAR_INPUT
+        i_Run : Bool;   // RODANDO (FB_MachineMode.o_Run)
+        i_SafeState : Bool;   // estado seguro (FB_MachineMode.o_SafeState)
+        i_Reset : Bool;   // NO — pulso de reset (Cmd.Reset); borda limpa o latch
+        i_EStop : Bool;   // NF — E-Stop fisico rearmado (Cmd.EStop); gate do CLEAR do latch
+    END_VAR
+
+    VAR_OUTPUT
+        o_RotCW : Bool;   // -> FC_IoMapOutputs.i_RotCW
+        o_RotCCW : Bool;   // -> FC_IoMapOutputs.i_RotCCW
+        o_ReleaseM1 : Bool;   // -> FB_Conveyor M1 (i_Release) — NIVEL no passo 5
+        o_PauseM2 : Bool;   // -> FB_Conveyor M2 (i_ForcePause) — NIVEL passos 9..13
+        o_Fault : Bool;   // -> FB_MachineMode.i_SeqFault — NIVEL latcheado
+        o_FaultCode : Int;    // congela no 1o codigo (1..5)
+        o_CycleDone : Bool;   // pulso de 1 scan no passo 16
+    END_VAR
+
+    VAR_IN_OUT
+        io_Station : "typeStation";   // referencia ao StationData.Station
+    END_VAR
+
+    VAR
+        s_State : Int := 0;    // 0=IDLE, 1..16 passos, 99=FALHA
+        s_AxisX : "FB_AxisPos";
+        s_AxisZ : "FB_AxisPos";
+        s_RotCW : "FB_Rotate180";
+        s_RotCCW : "FB_Rotate180";
+        s_tStep : TON_TIME;    // timeout de passo (PT := Cfg.SeqStepTimeout)
+        s_Fault : Bool;
+        s_FaultCode : Int;
+        s_rReset : R_TRIG;
+        s_xEnable : Bool;
+        s_zEnable : Bool;
+        s_xTarget : LReal;
+        s_zTarget : LReal;
+        s_trigCW : Bool;
+        s_trigCCW : Bool;
+        s_grab : Bool;         // nivel do vacuo (liga passo 3, desliga passo 11)
+        s_PrevState : Int;     // passo do scan anterior (re-arma o timeout)
+        s_stepIsMove : Bool;   // passo atual e de movimento (habilita timeout)
+    END_VAR
+
+    VAR_TEMP
+        t_stepChanged : Bool;
+    END_VAR
+
+BEGIN
+
+    REGION Bordas
+    // Detector de borda do reset — chamar TODO scan
+        #s_rReset(CLK := #i_Reset);
+    END_REGION
+
+    REGION Reset do latch
+    // CLEAR do latch (antes do SET): so com borda de Reset E gate = E-Stop fisico
+    // rearmado (i_EStop). NAO usar NOT i_SafeState (TRUE durante a falha -> deadlock).
+    // Limpa falha, codigo e volta a IDLE.
+        IF #s_rReset.Q AND #i_EStop THEN
+            #s_Fault := FALSE;
+            #s_FaultCode := 0;
+            #s_State := 0;
+        END_IF;
+    END_REGION
+
+    REGION Reset a IDLE
+    // Estado seguro ou maquina nao-RODANDO -> volta a IDLE (sub-FBs congelam pela
+    // i_SafeState/enable=F). NAO toca o latch de falha (so o reset deliberado limpa).
+        IF #i_SafeState OR NOT #i_Run THEN
+            #s_State := 0;
+            #s_grab := FALSE;   // coerencia com a mascara do FC — peca solta no safe
+        END_IF;
+    END_REGION
+
+    REGION Defaults do scan
+    // Zera todo scan os intermediarios pulsados/saidas de nivel reconstruidas no CASE.
+    // NAO zerar s_grab, s_xTarget, s_zTarget (persistem entre passos).
+        #s_xEnable := FALSE;
+        #s_zEnable := FALSE;
+        #s_trigCW := FALSE;
+        #s_trigCCW := FALSE;
+        #o_ReleaseM1 := FALSE;
+        #o_PauseM2 := FALSE;
+        #o_CycleDone := FALSE;
+        #s_stepIsMove := FALSE;
+    END_REGION
+
+    REGION FSM
+    // CASE decide os intermediarios + transicoes + SET de falha (codigos 4/5).
+    // Helpers de posicao confirmam o DESTINO (nao basta InPos generico).
+        CASE #s_State OF
+            0 : // IDLE — tudo desligado; aguarda condicao de partida
+                #s_grab := FALSE;
+                IF #i_Run AND #io_Station.Cfg.Enabled AND #io_Station.Sts.BoxAtPick
+                    AND NOT #i_SafeState AND NOT #s_Fault THEN
+                    #s_State := 1;
+                END_IF;
+
+            1 : // Move X para pega (guarda: Z em Z_up)
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                    #s_xEnable := TRUE;
+                    #s_xTarget := #io_Station.Cfg.X_pick;
+                    IF #io_Station.Sts.AxisX.InPos THEN
+                        #s_State := 2;
+                    END_IF;
+                END_IF;
+
+            2 : // Desce Z ate detectar item ou limite (guarda: X em X_pick)
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisX.InPos
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_pick) <= #io_Station.Cfg.PosTol THEN
+                    #s_xEnable := TRUE;
+                    #s_xTarget := #io_Station.Cfg.X_pick;
+                    #s_zEnable := TRUE;
+                    #s_zTarget := #io_Station.Cfg.Z_pickLimit;
+                    IF #io_Station.Sts.ItemDetected THEN
+                        // R1 anti-esmagamento: congela Z no ponto de contato (captura PV)
+                        #s_zTarget := #io_Station.Sts.AxisZ.PV;
+                        #s_State := 3;
+                    ELSIF #io_Station.Sts.AxisZ.InPos THEN
+                        // chegou ao limite sem item -> FALHA 4
+                        IF NOT #s_Fault THEN
+                            #s_Fault := TRUE;
+                            #s_FaultCode := 4;
+                        END_IF;
+                        #s_State := 99;
+                    END_IF;
+                END_IF;
+
+            3 : // Liga vacuo segurando o SP capturado (1 scan)
+                #s_zEnable := TRUE;          // segura o SP capturado (s_zTarget = PV de contato)
+                #s_grab := TRUE;
+                #s_xEnable := TRUE;
+                #s_xTarget := #io_Station.Cfg.X_pick;
+                #s_State := 4;
+
+            4 : // Sobe Z para Z_up com o item
+                #s_zEnable := TRUE;
+                #s_zTarget := #io_Station.Cfg.Z_up;
+                #s_grab := TRUE;
+                #s_stepIsMove := TRUE;
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                    #s_State := 5;
+                END_IF;
+
+            5 : // Religa M1 (pipeline); eixos congelados (1 scan)
+                #o_ReleaseM1 := TRUE;
+                #s_grab := TRUE;
+                #s_State := 6;
+
+            6 : // Move X para home (guarda: Z em Z_up)
+                #s_grab := TRUE;
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                    #s_xEnable := TRUE;
+                    #s_xTarget := #io_Station.Cfg.X_home;
+                    IF #io_Station.Sts.AxisX.InPos
+                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
+                        #s_State := 7;
+                    END_IF;
+                END_IF;
+
+            7 : // Rotaciona CW (guarda: Z up & X home & NOT Rotating)
+                #s_grab := TRUE;
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
+                    AND #io_Station.Sts.AxisX.InPos
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
+                    AND NOT #io_Station.Sts.Rotating THEN
+                    #s_trigCW := TRUE;
+                    IF #s_RotCW.o_Done THEN
+                        #s_State := 8;
+                    END_IF;
+                END_IF;
+
+            8 : // Move X para deposito (guarda: Z up & NOT Rotating)
+                #s_grab := TRUE;
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
+                    AND NOT #io_Station.Sts.Rotating THEN
+                    #s_xEnable := TRUE;
+                    #s_xTarget := #io_Station.Cfg.X_place;
+                    IF #io_Station.Sts.AxisX.InPos
+                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
+                        #s_State := 9;
+                    END_IF;
+                END_IF;
+
+            9 : // Pausa M2; segura X em deposito (1 scan)
+                #o_PauseM2 := TRUE;
+                #s_grab := TRUE;
+                #s_xEnable := TRUE;
+                #s_xTarget := #io_Station.Cfg.X_place;
+                #s_State := 10;
+
+            10 : // Desce Z para deposito (guarda: X em X_place)
+                #o_PauseM2 := TRUE;
+                #s_grab := TRUE;
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisX.InPos
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
+                    #s_zEnable := TRUE;
+                    #s_zTarget := #io_Station.Cfg.Z_place;
+                    IF #io_Station.Sts.AxisZ.InPos
+                        AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
+                        #s_State := 11;
+                    END_IF;
+                END_IF;
+
+            11 : // Solta vacuo (guarda: Z em Z_place); Z congelado em Z_place
+                #o_PauseM2 := TRUE;
+                #s_grab := FALSE;
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
+                    #s_zEnable := TRUE;
+                    #s_zTarget := #io_Station.Cfg.Z_place;
+                    IF NOT #io_Station.Sts.ItemDetected THEN
+                        #s_State := 12;
+                    END_IF;
+                END_IF;
+
+            12 : // Sobe Z para Z_up (vazio)
+                #o_PauseM2 := TRUE;
+                #s_zEnable := TRUE;
+                #s_zTarget := #io_Station.Cfg.Z_up;
+                #s_stepIsMove := TRUE;
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                    #s_State := 13;
+                END_IF;
+
+            13 : // Libera M2; eixos congelados (1 scan)
+                #o_PauseM2 := FALSE;
+                #s_State := 14;
+
+            14 : // Move X de volta para home (guarda: Z em Z_up)
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                    #s_xEnable := TRUE;
+                    #s_xTarget := #io_Station.Cfg.X_home;
+                    IF #io_Station.Sts.AxisX.InPos
+                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
+                        #s_State := 15;
+                    END_IF;
+                END_IF;
+
+            15 : // Rotaciona CCW (guarda: Z up & X home & NOT Rotating)
+                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
+                    AND #io_Station.Sts.AxisX.InPos
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
+                    AND NOT #io_Station.Sts.Rotating THEN
+                    #s_trigCCW := TRUE;
+                    IF #s_RotCCW.o_Done THEN
+                        #s_State := 16;
+                    END_IF;
+                END_IF;
+
+            16 : // Ciclo concluido — pulso e incrementa contador
+                #o_CycleDone := TRUE;
+                #io_Station.Sts.CycleCount := #io_Station.Sts.CycleCount + DINT#1;
+                #s_State := 0;
+
+            99 : // FALHA — tudo OFF; latch mantido; so sai por reset (REGION 2)
+                ;
+
+            ELSE
+                #s_State := 0;   // estado invalido -> seguro (IDLE)
+        END_CASE;
+    END_REGION
+
+    REGION Timeout de passo
+    // Re-arma o timer na troca de passo (zera a temporizacao) e so conta em passos de
+    // movimento. Estouro -> SET de falha com o codigo do passo (1/2/3/5).
+        #t_stepChanged := #s_State <> #s_PrevState;
+        #s_PrevState := #s_State;
+        #s_tStep(IN := #s_stepIsMove AND NOT #t_stepChanged,
+                 PT := #io_Station.Cfg.SeqStepTimeout);
+        IF #s_tStep.Q THEN
+            IF NOT #s_Fault THEN
+                #s_Fault := TRUE;
+                // Mapa de codigo de timeout por passo: 1,6,8,14->1; 2,4,10,12->2; 7,15->3; 11->5
+                CASE #s_State OF
+                    1, 6, 8, 14 : #s_FaultCode := 1;   // timeout X
+                    2, 4, 10, 12 : #s_FaultCode := 2;   // timeout Z
+                    7, 15 : #s_FaultCode := 3;          // timeout rotacao
+                    11 : #s_FaultCode := 5;             // caixa nao liberada
+                    ELSE #s_FaultCode := 1;             // fallback seguro
+                END_CASE;
+            END_IF;
+            #s_State := 99;
+        END_IF;
+    END_REGION
+
+    REGION Chamada sub-FBs
+    // Sub-FBs chamados INCONDICIONALMENTE, todo scan, DEPOIS do CASE. O CASE so decidiu
+    // os intermediarios; congelamento e via enable=F / i_SafeState dentro dos sub-FBs.
+        #s_AxisX(i_Enable := #s_xEnable, i_SafeState := #i_SafeState, i_SetPoint := #s_xTarget,
+                 i_PV := #io_Station.Sts.AxisX.PV, i_Tol := #io_Station.Cfg.PosTol,
+                 i_Debounce := #io_Station.Cfg.PosDebounce);
+        #s_AxisZ(i_Enable := #s_zEnable, i_SafeState := #i_SafeState, i_SetPoint := #s_zTarget,
+                 i_PV := #io_Station.Sts.AxisZ.PV, i_Tol := #io_Station.Cfg.PosTol,
+                 i_Debounce := #io_Station.Cfg.PosDebounce);
+        #s_RotCW(i_Trig := #s_trigCW, i_Dir := TRUE, i_Rotating := #io_Station.Sts.Rotating,
+                 i_SafeState := #i_SafeState);
+        #s_RotCCW(i_Trig := #s_trigCCW, i_Dir := FALSE, i_Rotating := #io_Station.Sts.Rotating,
+                  i_SafeState := #i_SafeState);
+    END_REGION
+
+    REGION Espelha status
+    // Escreve Sts.* (consumido pela HMI/IO) e saidas de processo APOS as chamadas.
+        #io_Station.Sts.AxisX.SP := #s_AxisX.o_SetPointCmd;
+        #io_Station.Sts.AxisX.InPos := #s_AxisX.o_InPos;
+        #io_Station.Sts.AxisZ.SP := #s_AxisZ.o_SetPointCmd;
+        #io_Station.Sts.AxisZ.InPos := #s_AxisZ.o_InPos;
+        #io_Station.Sts.VacuumOn := #s_grab;
+        #io_Station.Sts.Step := #s_State;
+        #io_Station.Sts.Fault := #s_Fault;
+        #io_Station.Sts.FaultCode := #s_FaultCode;
+        #o_RotCW := #s_RotCW.o_PulseCW;
+        #o_RotCCW := #s_RotCCW.o_PulseCCW;
+        #o_Fault := #s_Fault;
+        #o_FaultCode := #s_FaultCode;
+    END_REGION
+
+END_FUNCTION_BLOCK

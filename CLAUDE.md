@@ -8,15 +8,15 @@ Guia para o Claude Code trabalhar neste projeto.
 desenvolvido no **TIA Portal**, simulado em **FACTORY I/O + S7-PLCSIM** e editado no
 WebStorm (`.idea/`).
 
-> **Estado atual: implementação em andamento (9/12 blocos).** O escopo do processo está em
-> **`DOCS/ESCOPO_PickPlace.md`** e a arquitetura em **`DOCS/ARQUITETURA_PickPlace.md`**: uma
-> estação **Two-Axis Pick & Place** com duas esteiras (**M1** entrada, **M2** saída), comandos
-> **Liga/Desliga/Emergência/Reset**, **torre de sinalização** e o ciclo **pega → gira 180° →
-> deposita → retorna**. Os eixos X/Z são **posicionamento analógico** (setpoint/feedback em
-> tensão 0–10 V), não Technology Objects. **Feitos** (validados no linter): UDTs `typeAxis`/
+> **Estado atual: implementação quase completa — falta só o `OB_Main`.** O escopo do processo
+> está em **`DOCS/ESCOPO_PickPlace.md`** e a arquitetura em **`DOCS/ARQUITETURA_PickPlace.md`**:
+> uma estação **Two-Axis Pick & Place** com duas esteiras (**M1** entrada, **M2** saída),
+> comandos **Liga/Desliga/Emergência/Reset**, **torre de sinalização** e o ciclo **pega → gira
+> 180° → deposita → retorna**. Os eixos X/Z são **posicionamento analógico** (setpoint/feedback
+> em tensão 0–10 V), não Technology Objects. **Feitos e validados:** UDTs `typeAxis`/
 > `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
-> `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`. **Faltam:** `FB_Conveyor`, `FB_MachineMode`,
-> `FB_PickPlaceSeq`, `OB_Main`. Progresso ao vivo em `DOCS/PROJECT_STATE.md`.
+> `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`.
+> **Falta:** `OB_Main` (OB1 orquestrador). Progresso ao vivo em `DOCS/PROJECT_STATE.md`.
 >
 > *(Histórico: o repositório teve antes um subsistema de 20 motores + 2 reguladores ITV,
 > removido nesta sessão. O log fica em `DOCS/PROJECT_STATE.md`.)*
@@ -49,9 +49,9 @@ WebStorm (`.idea/`).
 
 ```
 aula01/
-├─ OBs/          (vazio — a criar: OB_Main / OB1)
-├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180  (+ FB_Conveyor, FB_MachineMode,
-│                FB_PickPlaceSeq a criar)
+├─ OBs/          (vazio — a criar: OB_Main / OB1, o último bloco)
+├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_MachineMode,
+│                FB_PickPlaceSeq
 ├─ FCs/          FC_ScaleVolt, FC_IoMapInputs, FC_IoMapOutputs
 ├─ DBs/          StationData (Station : typeStation)
 ├─ UDTs/         typeAxis, typeStation
