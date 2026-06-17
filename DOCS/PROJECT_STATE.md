@@ -11,12 +11,14 @@
 ## Estado atual
 
 - **Projeto atual: estação Two-Axis Pick & Place** (FACTORY I/O v2.5.10 ↔ S7-PLCSIM).
-  **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl`,
-  `DBs/StationData.scl`, `FCs/FC_ScaleVolt.scl`, `FCs/FC_IoMapInputs.scl`,
-  `FCs/FC_IoMapOutputs.scl`, `FBs/FB_ClockGen.scl`, `FBs/FB_AxisPos.scl` e
-  `FBs/FB_Rotate180.scl`, `FBs/FB_Conveyor.scl`, `FBs/FB_MachineMode.scl` e
-  `FBs/FB_PickPlaceSeq.scl` criados e validados no linter (MCP limpo); **falta só**
-  `OBs/OB_Main.scl` (o OB orquestrador). Escopo em
+  **✅ LÓGICA COMPLETA — 13/13 blocos** criados e validados no linter MCP, cada um
+  revisado (`scl-reviewer`) e auditado em safety (`safety-auditor`): UDTs `typeAxis`/
+  `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
+  `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`,
+  e `OBs/OB_Main.scl`. **Pendências só no TIA Portal** (não viram `.scl`): criar a tag table das
+  24 tags (endereços no `tags.md` §6; `%ID/%QD`=Real), os 5 DBs de instância
+  (`FB_ClockGen_DB`, `FB_MachineMode_DB`, `FB_Conveyor_M1_DB`, `FB_Conveyor_M2_DB`,
+  `FB_PickPlaceSeq_DB`), atribuir `OB_Main` ao OB1, e calibrar `Cfg.*`. Escopo em
   `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
   `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
 - **Transição (2026-06-16):** removido TODO o código SCL do subsistema antigo (20 motores +
@@ -37,7 +39,8 @@
   I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
   `typeAxis`, `typeStation` (+`Sts.SensorBox`), `StationData`, `FC_ScaleVolt`,
   `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_ClockGen`, `FB_AxisPos`, `FB_Rotate180`,
-  `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`. **Próximo (último):** `OB_Main`.
+  `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`. **✅ TODOS os 13 blocos
+  prontos** — lógica completa; resta só a integração no TIA + validação no PLCSIM.
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
   PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
@@ -188,9 +191,16 @@
 - Nada crítico. Docs vivos (`PROJECT_STATE.md`, `CLAUDE.md`) reconciliados após criar os UDTs.
 
 ### Próximos passos
-- Continuar a implementação na ordem da `ARQUITETURA_PickPlace.md` §8: **próximo =
-  `FB_ClockGen`** (1º FB com estado); depois `FB_AxisPos`, `FB_Rotate180`, `FB_Conveyor`,
-  `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`.
+- **✅ Lógica SCL completa (13/13 blocos).** Os carry-forwards abaixo já foram cumpridos
+  (histórico). Trabalho restante:
+- **Integração no TIA Portal** (não vira `.scl`): criar a tag table (24 tags, §6 do `tags.md`;
+  `%ID/%QD`=Real), os 5 DBs de instância (`FB_ClockGen_DB`, `FB_MachineMode_DB`,
+  `FB_Conveyor_M1_DB`, `FB_Conveyor_M2_DB`, `FB_PickPlaceSeq_DB`), atribuir `OB_Main` ao OB1.
+- **Validar no PLCSIM** (test-sim-engineer): ciclo 1–16, E-Stop/Stop/Reset, falhas (timeouts,
+  FALHA 4/5), anticolisão, e a **§9.2** (setpoints/tolerância/velocidade exatos, polaridade
+  NC/NO real, debounce de `i_Rotating`, espaçamento de caixas no release da M1, R1 parada-por-SP).
+- **Decisão de processo pendente:** vácuo no E-Stop/FALHA = **(i) soltar a peça** (atual) vs
+  **(ii) segurar** (muda só a máscara de `o_Grab` no `FC_IoMapOutputs`).
 - **Carry-forward (FC_IoMapOutputs):** os FBs de processo (`FB_Conveyor`/`FB_AxisPos`/
   `FB_PickPlaceSeq`) devem **escrever** `Sts.M1Speed/M2Speed/VacuumOn/AxisX-Z.SP` no DB (via
   IN_OUT) antes do FC de saída rodar (ele só LÊ esses campos). O `FB_MachineMode` produz

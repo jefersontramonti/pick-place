@@ -103,14 +103,15 @@ BEGIN
             0 : // IDLE — tudo desligado; aguarda condicao de partida
                 #s_grab := FALSE;
                 IF #i_Run AND #io_Station.Cfg.Enabled AND #io_Station.Sts.BoxAtPick
-                    AND NOT #i_SafeState AND NOT #s_Fault THEN
+                AND NOT #i_SafeState AND NOT #s_Fault THEN
                     #s_State := 1;
                 END_IF;
 
             1 : // Move X para pega (guarda: Z em Z_up)
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
                     #s_xEnable := TRUE;
                     #s_xTarget := #io_Station.Cfg.X_pick;
                     IF #io_Station.Sts.AxisX.InPos THEN
@@ -119,19 +120,20 @@ BEGIN
                 END_IF;
 
             2 : // Desce Z ate detectar item ou limite (guarda: X em X_pick)
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisX.InPos
-                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_pick) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_pick) <= #io_Station.Cfg.PosTol THEN
                     #s_xEnable := TRUE;
                     #s_xTarget := #io_Station.Cfg.X_pick;
                     #s_zEnable := TRUE;
                     #s_zTarget := #io_Station.Cfg.Z_pickLimit;
                     IF #io_Station.Sts.ItemDetected THEN
-                        // R1 anti-esmagamento: congela Z no ponto de contato (captura PV)
+                    // R1 anti-esmagamento: congela Z no ponto de contato (captura PV)
                         #s_zTarget := #io_Station.Sts.AxisZ.PV;
                         #s_State := 3;
                     ELSIF #io_Station.Sts.AxisZ.InPos THEN
-                        // chegou ao limite sem item -> FALHA 4
+                    // chegou ao limite sem item -> FALHA 4
                         IF NOT #s_Fault THEN
                             #s_Fault := TRUE;
                             #s_FaultCode := 4;
@@ -141,7 +143,8 @@ BEGIN
                 END_IF;
 
             3 : // Liga vacuo segurando o SP capturado (1 scan)
-                #s_zEnable := TRUE;          // segura o SP capturado (s_zTarget = PV de contato)
+                #s_zEnable := TRUE;
+                // segura o SP capturado (s_zTarget = PV de contato)
                 #s_grab := TRUE;
                 #s_xEnable := TRUE;
                 #s_xTarget := #io_Station.Cfg.X_pick;
@@ -153,7 +156,7 @@ BEGIN
                 #s_grab := TRUE;
                 #s_stepIsMove := TRUE;
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
                     #s_State := 5;
                 END_IF;
 
@@ -164,25 +167,27 @@ BEGIN
 
             6 : // Move X para home (guarda: Z em Z_up)
                 #s_grab := TRUE;
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
                     #s_xEnable := TRUE;
                     #s_xTarget := #io_Station.Cfg.X_home;
                     IF #io_Station.Sts.AxisX.InPos
-                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
                         #s_State := 7;
                     END_IF;
                 END_IF;
 
             7 : // Rotaciona CW (guarda: Z up & X home & NOT Rotating)
                 #s_grab := TRUE;
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
-                    AND #io_Station.Sts.AxisX.InPos
-                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
-                    AND NOT #io_Station.Sts.Rotating THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
+                AND #io_Station.Sts.AxisX.InPos
+                AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
+                AND NOT #io_Station.Sts.Rotating THEN
                     #s_trigCW := TRUE;
                     IF #s_RotCW.o_Done THEN
                         #s_State := 8;
@@ -191,14 +196,15 @@ BEGIN
 
             8 : // Move X para deposito (guarda: Z up & NOT Rotating)
                 #s_grab := TRUE;
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
-                    AND NOT #io_Station.Sts.Rotating THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
+                AND NOT #io_Station.Sts.Rotating THEN
                     #s_xEnable := TRUE;
                     #s_xTarget := #io_Station.Cfg.X_place;
                     IF #io_Station.Sts.AxisX.InPos
-                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
                         #s_State := 9;
                     END_IF;
                 END_IF;
@@ -213,13 +219,14 @@ BEGIN
             10 : // Desce Z para deposito (guarda: X em X_place)
                 #o_PauseM2 := TRUE;
                 #s_grab := TRUE;
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisX.InPos
-                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
                     #s_zEnable := TRUE;
                     #s_zTarget := #io_Station.Cfg.Z_place;
                     IF #io_Station.Sts.AxisZ.InPos
-                        AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
                         #s_State := 11;
                     END_IF;
                 END_IF;
@@ -227,9 +234,10 @@ BEGIN
             11 : // Solta vacuo (guarda: Z em Z_place); Z congelado em Z_place
                 #o_PauseM2 := TRUE;
                 #s_grab := FALSE;
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
                     #s_zEnable := TRUE;
                     #s_zTarget := #io_Station.Cfg.Z_place;
                     IF NOT #io_Station.Sts.ItemDetected THEN
@@ -243,7 +251,7 @@ BEGIN
                 #s_zTarget := #io_Station.Cfg.Z_up;
                 #s_stepIsMove := TRUE;
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
                     #s_State := 13;
                 END_IF;
 
@@ -252,24 +260,26 @@ BEGIN
                 #s_State := 14;
 
             14 : // Move X de volta para home (guarda: Z em Z_up)
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
                     #s_xEnable := TRUE;
                     #s_xTarget := #io_Station.Cfg.X_home;
                     IF #io_Station.Sts.AxisX.InPos
-                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
                         #s_State := 15;
                     END_IF;
                 END_IF;
 
             15 : // Rotaciona CCW (guarda: Z up & X home & NOT Rotating)
-                #s_stepIsMove := TRUE;   // timeout cobre tambem a espera da guarda
+                #s_stepIsMove := TRUE;
+                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
-                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
-                    AND #io_Station.Sts.AxisX.InPos
-                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
-                    AND NOT #io_Station.Sts.Rotating THEN
+                AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
+                AND #io_Station.Sts.AxisX.InPos
+                AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
+                AND NOT #io_Station.Sts.Rotating THEN
                     #s_trigCCW := TRUE;
                     IF #s_RotCCW.o_Done THEN
                         #s_State := 16;
@@ -295,7 +305,7 @@ BEGIN
         #t_stepChanged := #s_State <> #s_PrevState;
         #s_PrevState := #s_State;
         #s_tStep(IN := #s_stepIsMove AND NOT #t_stepChanged,
-                 PT := #io_Station.Cfg.SeqStepTimeout);
+        PT := #io_Station.Cfg.SeqStepTimeout);
         IF #s_tStep.Q THEN
             IF NOT #s_Fault THEN
                 #s_Fault := TRUE;
@@ -316,15 +326,15 @@ BEGIN
     // Sub-FBs chamados INCONDICIONALMENTE, todo scan, DEPOIS do CASE. O CASE so decidiu
     // os intermediarios; congelamento e via enable=F / i_SafeState dentro dos sub-FBs.
         #s_AxisX(i_Enable := #s_xEnable, i_SafeState := #i_SafeState, i_SetPoint := #s_xTarget,
-                 i_PV := #io_Station.Sts.AxisX.PV, i_Tol := #io_Station.Cfg.PosTol,
-                 i_Debounce := #io_Station.Cfg.PosDebounce);
+        i_PV := #io_Station.Sts.AxisX.PV, i_Tol := #io_Station.Cfg.PosTol,
+        i_Debounce := #io_Station.Cfg.PosDebounce);
         #s_AxisZ(i_Enable := #s_zEnable, i_SafeState := #i_SafeState, i_SetPoint := #s_zTarget,
-                 i_PV := #io_Station.Sts.AxisZ.PV, i_Tol := #io_Station.Cfg.PosTol,
-                 i_Debounce := #io_Station.Cfg.PosDebounce);
+        i_PV := #io_Station.Sts.AxisZ.PV, i_Tol := #io_Station.Cfg.PosTol,
+        i_Debounce := #io_Station.Cfg.PosDebounce);
         #s_RotCW(i_Trig := #s_trigCW, i_Dir := TRUE, i_Rotating := #io_Station.Sts.Rotating,
-                 i_SafeState := #i_SafeState);
+        i_SafeState := #i_SafeState);
         #s_RotCCW(i_Trig := #s_trigCCW, i_Dir := FALSE, i_Rotating := #io_Station.Sts.Rotating,
-                  i_SafeState := #i_SafeState);
+        i_SafeState := #i_SafeState);
     END_REGION
 
     REGION Espelha status

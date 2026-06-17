@@ -207,6 +207,14 @@ endereçamento `%Q`/`%QD`. Garantia fail-safe mesmo com falha isolada de um FB i
 
 ## 9. Notas de engenharia
 
+- **Nomes simbólicos das tags de PLC (TIA "Tag table_1", confirmados):** os nomes da coluna
+  "Tag (FACTORY I/O)" deste documento são as **tags de PLC reais** no TIA Portal (importadas do
+  XML `Tags_New Scene_..._2026-06-16-13-16-09.xml`). No SCL, referenciá-las **entre aspas
+  duplas** por conterem espaços/`&`/`()`, ex.: `"Start Button 0"`, `"Emergency Stop 0"`,
+  `"Two-Axis Pick & Place 0 (Rotating)"`, `"Stack Light 0 (Red)"`, `"M1"`,
+  `"Two-Axis Pick & Place 0 X Position (V)"`. O `OB_Main` liga essas tags ao `FC_IoMapInputs`
+  (entradas) e ao `FC_IoMapOutputs` (saídas). Os **DBs de instância** dos FBs (ex.:
+  `"FB_MachineMode_DB"`, `"FB_PickPlaceSeq_DB"`) são criados no TIA e referenciados na chamada.
 - **Leitura centralizada de E/S:** `FC_IoMapInputs` (stateless) roteia **todas** as entradas
   (`%I`/`%ID`) para `StationData.Station` no início de cada ciclo; `FC_IoMapOutputs` escreve
   as saídas (`%Q`/`%QD`) ao final (após cálculos e máscara de segurança). Isolamento total do

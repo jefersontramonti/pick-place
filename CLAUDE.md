@@ -8,15 +8,17 @@ Guia para o Claude Code trabalhar neste projeto.
 desenvolvido no **TIA Portal**, simulado em **FACTORY I/O + S7-PLCSIM** e editado no
 WebStorm (`.idea/`).
 
-> **Estado atual: implementação quase completa — falta só o `OB_Main`.** O escopo do processo
+> **Estado atual: ✅ lógica SCL COMPLETA (13/13 blocos — validados, revisados e auditados em
+> safety). Resta integração no TIA Portal + validação no PLCSIM.** O escopo do processo
 > está em **`DOCS/ESCOPO_PickPlace.md`** e a arquitetura em **`DOCS/ARQUITETURA_PickPlace.md`**:
 > uma estação **Two-Axis Pick & Place** com duas esteiras (**M1** entrada, **M2** saída),
 > comandos **Liga/Desliga/Emergência/Reset**, **torre de sinalização** e o ciclo **pega → gira
 > 180° → deposita → retorna**. Os eixos X/Z são **posicionamento analógico** (setpoint/feedback
 > em tensão 0–10 V), não Technology Objects. **Feitos e validados:** UDTs `typeAxis`/
 > `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
-> `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`.
-> **Falta:** `OB_Main` (OB1 orquestrador). Progresso ao vivo em `DOCS/PROJECT_STATE.md`.
+> `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq` e
+> `OB_Main`. **Pendências só no TIA** (não viram `.scl`): tag table (24 tags), 5 DBs de
+> instância, atribuir OB1. Progresso ao vivo em `DOCS/PROJECT_STATE.md`.
 >
 > *(Histórico: o repositório teve antes um subsistema de 20 motores + 2 reguladores ITV,
 > removido nesta sessão. O log fica em `DOCS/PROJECT_STATE.md`.)*
@@ -49,7 +51,7 @@ WebStorm (`.idea/`).
 
 ```
 aula01/
-├─ OBs/          (vazio — a criar: OB_Main / OB1, o último bloco)
+├─ OBs/          OB_Main.scl  (OB1 orquestrador — chama tudo na ordem §4)
 ├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_MachineMode,
 │                FB_PickPlaceSeq
 ├─ FCs/          FC_ScaleVolt, FC_IoMapInputs, FC_IoMapOutputs
