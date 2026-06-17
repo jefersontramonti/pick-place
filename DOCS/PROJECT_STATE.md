@@ -14,8 +14,8 @@
   **Implementação iniciada** — `UDTs/typeAxis.scl`, `UDTs/typeStation.scl`,
   `DBs/StationData.scl`, `FCs/FC_ScaleVolt.scl`, `FCs/FC_IoMapInputs.scl`,
   `FCs/FC_IoMapOutputs.scl`, `FBs/FB_ClockGen.scl`, `FBs/FB_AxisPos.scl` e
-  `FBs/FB_Rotate180.scl` criados e validados no linter (MCP limpo); `OBs/` vazia, demais FBs a
-  criar. Escopo em
+  `FBs/FB_Rotate180.scl`, `FBs/FB_Conveyor.scl` e `FBs/FB_MachineMode.scl` criados e validados
+  no linter (MCP limpo); `OBs/` vazia, faltam `FB_PickPlaceSeq` e `OB_Main`. Escopo em
   `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
   `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
 - **Transição (2026-06-16):** removido TODO o código SCL do subsistema antigo (20 motores +
@@ -35,8 +35,8 @@
   FB_MachineMode, FB_PickPlaceSeq, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_ClockGen, FCs de
   I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
   `typeAxis`, `typeStation` (+`Sts.SensorBox`), `StationData`, `FC_ScaleVolt`,
-  `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_ClockGen`, `FB_AxisPos`, `FB_Rotate180`.
-  **Próximo:** `FB_Conveyor`.
+  `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_ClockGen`, `FB_AxisPos`, `FB_Rotate180`,
+  `FB_Conveyor`, `FB_MachineMode`. **Próximo:** `FB_PickPlaceSeq`.
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
   PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
@@ -203,3 +203,14 @@
 - Fechar §9.2 do escopo no PLCSIM (valores exatos, polaridade NC/NO, e **debounce de
   `i_Rotating`** — anti-glitch da contagem de 90° no `FB_Rotate180`, achado [MÉDIO] do
   revisor; largura de pulso já resolvida pelo handshake). Encaminhar ao test-sim-engineer.
+- **Carry-forward (`FB_Conveyor`):** no `FB_PickPlaceSeq`, `o_ReleaseM1` deve **segurar nível
+  durante todo o passo 5** (não pulso de 1 scan) — há latência de 1 ciclo (M1 roda antes da
+  sequência no OB). Premissa §9.2/§7-risco7: o re-arm da M1 precisa de **nova borda de descida**
+  do sensor → validar no PLCSIM que o espaçamento das caixas deixa o sensor livre no release
+  (senão a 2ª caixa não re-latcha). Falha é para o lado seguro (M1 fica parada).
+- **Carry-forward CRÍTICO (`FB_PickPlaceSeq` — latch de falha único):** decisão de arquitetura
+  após achado [ALTO] no `FB_MachineMode` (que **removeu** seu `s_FaultLatch`). O `FB_PickPlaceSeq`
+  é a **fonte única** da falha: `o_Fault` é **NÍVEL latcheado** (não pulso), `o_FaultCode`
+  **congela** no 1º código; CLEAR só no **próprio reset** = borda de `i_Reset` **E** `i_EStop`
+  rearmado (NOT i_SafeState), **clear-antes-do-set**, voltando a passo 0. O `FB_MachineMode`
+  liga `i_SeqFault := o_Fault` (nível) e só reflete (FALHA por nível). Sem double-latch.

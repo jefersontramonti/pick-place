@@ -2,7 +2,8 @@
 
 > Plano de arquitetura produzido pelo subagente **scl-architect** a partir de
 > `DOCS/ESCOPO_PickPlace.md` (§5 sequência, §7 intertravamentos, §10 arquitetura).
-> **É o blueprint a implementar — nenhum bloco foi escrito ainda.** CPU S7-1500 1518T-4 PN/DP,
+> **Blueprint da implementação (em andamento — 11/12 blocos prontos; falta `FB_PickPlaceSeq` e
+> `OB_Main`).** CPU S7-1500 1518T-4 PN/DP,
 > SCL/TIA Portal, FACTORY I/O ↔ S7-PLCSIM. Convenções: comentários PT, tags EN, standard.
 >
 > Mantê-lo sincronizado com `ESCOPO_PickPlace.md` (processo) e `tags.md` (I/O) ao implementar.
@@ -21,7 +22,7 @@
 | 6 | **FC** | `FC_IoMapOutputs` | Roteia `StationData` → saídas (`%Q`, `%QD`). Aplica máscara de estado seguro. Stateless | `OB_Main` (fim do scan) |
 | 7 | **FC** | `FC_ScaleVolt` | Conversão V ↔ engenharia (NORM_X/SCALE_X + LIMIT). Pura | `FB_AxisPos`, HMI (opcional) |
 | 8 | **FB** | `FB_ClockGen` | Bits de pisca lento (~1 Hz) e rápido (~3 Hz) por TON/TOF — determinístico | `OB_Main` |
-| 9 | **FB** | `FB_MachineMode` | Estados PARADO/RODANDO/EMERGÊNCIA/FALHA + latch de falha + sinalização (torre + luzes) | `OB_Main` |
+| 9 | **FB** | `FB_MachineMode` | Estados PARADO/RODANDO/EMERGÊNCIA/FALHA + latch de **emergência** (FALHA = nível via `i_SeqFault`, latcheada no `FB_PickPlaceSeq`) + sinalização (torre + luzes) | `OB_Main` |
 | 10 | **FB** | `FB_AxisPos` | Eixo analógico genérico (1 inst./eixo): escreve SP, lê PV, "em posição" (tol + debounce), congela no safe | `FB_PickPlaceSeq` (multi-inst.) |
 | 11 | **FB** | `FB_Rotate180` | A partir de um trigger, 2 pulsos de `Rotate CW/CCW` contando quedas de `Rotating`; `o_Done` em 180° | `FB_PickPlaceSeq` (CW e CCW) |
 | 12 | **FB** | `FB_Conveyor` | Esteira analógica (M1/M2): liga (velocidade) / desliga (0 V). M1 integra sensor + delay | `FB_PickPlaceSeq`/`OB_Main` (2 inst.) |
@@ -147,9 +148,12 @@ VAR_OUTPUT o_Mode : Int;            // 0..3
            o_Red,o_Green,o_Yellow,o_StartLite,o_StopLite,o_ResetLite : Bool;
 VAR        s_State : Int;
            s_Reset : R_TRIG;
-           s_Latched : Bool;        // latch de emergência
-           s_FaultLatch : Bool;
+           s_Latched : Bool;        // latch de emergência (só emergência)
 ```
+> **Falha por nível:** `FB_MachineMode` NÃO latcheia falha — `i_SeqFault` é **nível** e
+> entra em FALHA diretamente. O latch de falha é **único** e vive no `FB_PickPlaceSeq`
+> (`o_Fault`). Decisão pós-revisão (achado [ALTO]): elimina double-latch, glitch de 1 scan
+> e disputa da borda de Reset entre os dois blocos.
 
 ### 2.7 FB `FB_AxisPos`
 ```
@@ -183,20 +187,29 @@ VAR        s_State : Int := 0;     // 0 IDLE, 1 PULSE, 2 MOVING, 3 DONE (IMPLEME
 > estado** (`NOT i_Rotating` só no state 2). Resolve o item §9.2 da largura de pulso e a
 > corrida de borda. *(A validar no PLCSIM: debounce de `i_Rotating` p/ glitch — ver §9.2.)*
 
-### 2.9 FB `FB_Conveyor`
+### 2.9 FB `FB_Conveyor`  (IMPLEMENTADO — decisão A do release)
 ```
 VAR_INPUT  i_Run : Bool;            // permissão geral (modo RODANDO)
-           i_Speed : LReal;         // V de regime
-           i_HasSensor : Bool;      // TRUE só para M1
-           i_Sensor : Bool;         // %I0.5 (M1)
-           i_StopOnBox : Bool;      // comando externo p/ parar M1 ao detectar
-           i_ForcePause : Bool;     // pausa M2 no depósito
-           i_StopDelay : Time;
-           i_SafeState : Bool;
-VAR_OUTPUT o_Speed : LReal;         // 0 ou i_Speed
-           o_BoxArrived : Bool;     // (M1) caixa posicionada após delay
-VAR        s_fSensor : F_TRIG;  s_tDelay : TON;  s_boxLatch : Bool;
+           i_SafeState : Bool;      // estado seguro -> 0 V
+           i_Speed : LReal;         // V de regime (Cfg.ConvSpeed)
+           i_HasSensor : Bool;      // TRUE só para M1 (habilita box-stop)
+           i_Sensor : Bool;         // sensor M1 (TRUE=caixa) <- Sts.SensorBox
+           i_StopDelay : Time;      // atraso da borda até parar (Cfg.M1StopDelay)
+           i_ForcePause : Bool;     // pausa M2 no depósito <- o_PauseM2
+           i_Release : Bool;        // pulso: libera o box-latch da M1 <- o_ReleaseM1
+VAR_OUTPUT o_Speed : LReal;         // 0.0 ou i_Speed (consumidor -> Sts.M1/M2Speed)
+           o_BoxArrived : Bool;     // (M1) caixa posicionada (= s_boxLatch, nível)
+VAR        s_fSensor : F_TRIG;  s_rRel : R_TRIG;  s_tDelay : TON_TIME;
+           s_boxLatch : Bool;  s_counting : Bool;
 ```
+> **Mudança vs. esboço:** `+ i_Release` / `- i_StopOnBox` (redundante com `i_HasSensor`);
+> `+ s_rRel`/`s_counting`; `TON` → `TON_TIME`. Box-stop: borda de descida do sensor + delay
+> (sustentado por `s_counting`) seta `s_boxLatch`; release (borda de subida) limpa (ordem:
+> clear ANTES do set, p/ re-arm no mesmo scan). M2 (`i_HasSensor=FALSE`) nunca latcha.
+> **Premissa (§9.2 / §7-risco 7):** o re-arm depende de uma nova borda de descida do sensor;
+> se a 2ª caixa já estiver parada SOBRE o sensor no release, não re-latcha — validar no PLCSIM
+> que o espaçamento das caixas garante o sensor livre no release, e que `o_ReleaseM1` segura
+> nível durante todo o passo 5.
 
 ### 2.10 FB `FB_PickPlaceSeq`
 ```
@@ -239,8 +252,8 @@ prioridade (segurança vence no scan).
 |---|---|
 | qualquer → EMERGÊNCIA | `i_EStop = FALSE` (NF) → latch `s_Latched := TRUE` |
 | EMERGÊNCIA → PARADO | `i_EStop = TRUE` (rearmada) **E** borda de `i_Reset` |
-| qualquer (exceto EMERG) → FALHA | `i_SeqFault = TRUE` → `s_FaultLatch := TRUE` |
-| FALHA → PARADO | borda de `i_Reset` **E** `i_EStop = TRUE` |
+| qualquer (exceto EMERG) → FALHA | `i_SeqFault = TRUE` (nível — latch único em `FB_PickPlaceSeq.o_Fault`) |
+| FALHA → PARADO | `i_SeqFault = FALSE` (sequência limpou `o_Fault` após reset); MachineMode não latcheia falha |
 | qualquer → PARADO | `i_Stop = FALSE` (NF) — sem latch, exige novo Start |
 | PARADO → RODANDO | borda de `i_Start` **E** `i_EStop = TRUE` **E** sem latch falha/emergência |
 | RODANDO → PARADO | `i_Stop = FALSE` |
@@ -253,8 +266,8 @@ Saídas / sinalização:
 - PARADO: `o_Run:=FALSE`, `o_Yellow := i_ClkSlow`, `o_StopLite` aceso. `o_SafeState:=TRUE`.
 - EMERGÊNCIA: `o_Run:=FALSE`, `o_Red := i_ClkFast`. `o_SafeState:=TRUE`.
 - FALHA: como PARADO + `o_Yellow := i_ClkSlow` (vermelho fixo a definir). `o_SafeState:=TRUE`.
-- `o_ResetLite := (s_Latched OR s_FaultLatch) AND i_ClkSlow` — pisca enquanto há algo a
-  rearmar; apaga após reset.
+- `o_ResetLite := (s_Latched OR i_SeqFault) AND i_ClkSlow` — pisca enquanto há emergência
+  latcheada OU falha de nível ativa; apaga após reset.
 
 ### 3.2 `FB_PickPlaceSeq` (ciclo do robô — passos 1–16)
 

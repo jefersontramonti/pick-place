@@ -1,0 +1,129 @@
+FUNCTION_BLOCK "FB_MachineMode"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+// FB_MachineMode: nucleo fail-safe do projeto. Maquina de MODO de operacao
+// PARADO/RODANDO/EMERGENCIA/FALHA. Unico ponto que interpreta a polaridade NF de
+// i_EStop/i_Stop, faz o latch de emergencia/falha e produz o_SafeState (mascara
+// consumida por TODOS os FCs/FBs) + a sinalizacao (torre + luzes de botao).
+// Prioridade a cada scan: EMERGENCIA > FALHA > STOP > OPERACAO. E-Stop NF latcheado,
+// sem auto-rearme: so limpa com i_EStop=TRUE (rearmado) E borda de Reset. Energiza em
+// estado seguro (nunca nasce em RODANDO). FB de instancia unica, chamado pelo OB_Main
+// (nao chamar aqui). Fonte: ARQUITETURA_PickPlace.md §2.6/§3.1, ESCOPO_PickPlace.md §3.
+//
+// NOTA SAFETY: projeto em CPU standard (sem F-CPU/PROFIsafe). A parada de emergencia
+// com SIL/PL requer F-CPU e canais seguros — esta logica e funcional, nao de seguranca
+// certificada. Mantida fail-safe (NF + latch + rearme fisico) como boa pratica standard.
+    VAR_INPUT
+        i_Start : Bool;    // NO  — borda de subida liga
+        i_Stop : Bool;    // NF  — FALSE = parar (ou fio rompido)
+        i_EStop : Bool;    // NF  — FALSE = emergencia (ou fio rompido)
+        i_Reset : Bool;    // NO  — borda de subida rearma (pulso)
+        i_SeqFault : Bool;    // falha vinda da sequencia (timeout de passo etc.)
+        i_ClkSlow : Bool;    // pisca lento (FB_ClockGen.o_Slow)
+        i_ClkFast : Bool;    // pisca rapido (FB_ClockGen.o_Fast)
+    END_VAR
+
+    VAR_OUTPUT
+        o_Mode : Int;    // 0=PARADO 1=RODANDO 2=EMERGENCIA 3=FALHA
+        o_Run : Bool;   // habilita esteiras + sequencia (TRUE so em RODANDO)
+        o_SafeState : Bool;   // TRUE em PARADO/EMERGENCIA/FALHA (mascara das saidas)
+        o_Red : Bool;   // torre vermelho
+        o_Green : Bool;   // torre verde
+        o_Yellow : Bool;   // torre amarelo
+        o_StartLite : Bool;   // luz botao Liga
+        o_StopLite : Bool;   // luz botao Desliga
+        o_ResetLite : Bool;   // luz botao Reset
+    END_VAR
+
+    VAR
+        s_State : Int := 0;   // estado atual (default PARADO)
+        s_Reset : R_TRIG;     // borda de subida do Reset
+        s_Start : R_TRIG;     // borda de subida do Start
+        s_Latched : Bool;       // latch de EMERGENCIA (so emergencia; falha e NIVEL via i_SeqFault)
+    END_VAR
+
+BEGIN
+
+    REGION Bordas
+    // Detectores de borda — chamar TODO scan
+        #s_Reset(CLK := #i_Reset);
+        #s_Start(CLK := #i_Start);
+    END_REGION
+
+    REGION Latches de emergencia e falha
+    // SET emergencia: NF — FALSE = acionado (ou fio rompido). Reavaliado todo scan.
+        IF NOT #i_EStop THEN
+            #s_Latched := TRUE;
+        END_IF;
+        // (FALHA nao latcheia aqui — e NIVEL via i_SeqFault, latcheada no FB_PickPlaceSeq.)
+        // CLEAR (rearme deliberado) da EMERGENCIA: so com E-Stop REARMADO (i_EStop=TRUE) E
+        // borda de Reset. Enquanto i_EStop=FALSE, o SET acima re-trava — sem auto-rearme. SET e
+        // CLEAR sao mutuamente exclusivos em i_EStop (sem conflito no mesmo scan).
+        IF #s_Reset.Q AND #i_EStop THEN
+            #s_Latched := FALSE;
+        END_IF;
+    END_REGION
+
+    REGION Maquina de modo (prioridade: emergencia > falha > stop > operacao)
+        IF #s_Latched THEN
+            #s_State := 2;                  // EMERGENCIA
+        ELSIF #i_SeqFault THEN
+            #s_State := 3;                  // FALHA (nivel — reflete o_Fault da sequencia)
+        ELSIF NOT #i_Stop THEN
+            #s_State := 0;                  // PARADO (Stop NF acionado/fio rompido)
+        ELSE
+        // saudavel: nem emergencia, nem falha, nem Stop. (Aqui i_EStop=TRUE garantido,
+        // pois NOT i_EStop teria setado s_Latched -> ramo EMERGENCIA.)
+            IF #s_State = 1 THEN
+                ;                            // permanece RODANDO (Stop ja tratado acima)
+            ELSIF #s_Start.Q THEN
+                #s_State := 1;               // PARADO -> RODANDO na borda de Start
+            ELSE
+                #s_State := 0;               // PARADO
+            END_IF;
+        END_IF;
+    END_REGION
+
+    REGION Saidas e sinalizacao
+        #o_Mode := #s_State;
+        // Luz de Reset: pisca enquanto houver latch a rearmar; apaga apos reset bem-sucedido.
+        #o_ResetLite := (#s_Latched OR #i_SeqFault) AND #i_ClkSlow;
+
+        CASE #s_State OF
+            1 : // RODANDO
+                #o_Run := TRUE;
+                #o_SafeState := FALSE;
+                #o_Green := TRUE;
+                #o_Yellow := FALSE;
+                #o_Red := FALSE;
+                #o_StartLite := TRUE;
+                #o_StopLite := FALSE;
+            2 : // EMERGENCIA — vermelho piscando rapido
+                #o_Run := FALSE;
+                #o_SafeState := TRUE;
+                #o_Green := FALSE;
+                #o_Yellow := FALSE;
+                #o_Red := #i_ClkFast;
+                #o_StartLite := FALSE;
+                #o_StopLite := FALSE;
+            3 : // FALHA — vermelho FIXO (distingue de emergencia/parado)
+                #o_Run := FALSE;
+                #o_SafeState := TRUE;
+                #o_Green := FALSE;
+                #o_Yellow := FALSE;
+                #o_Red := TRUE;
+                #o_StartLite := FALSE;
+                #o_StopLite := FALSE;
+            ELSE  // 0 PARADO — amarelo piscando lento, luz Desliga acesa
+                #o_Run := FALSE;
+                #o_SafeState := TRUE;
+                #o_Green := FALSE;
+                #o_Yellow := #i_ClkSlow;
+                #o_Red := FALSE;
+                #o_StartLite := FALSE;
+                #o_StopLite := TRUE;
+        END_CASE;
+    END_REGION
+
+END_FUNCTION_BLOCK

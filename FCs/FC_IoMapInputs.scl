@@ -10,43 +10,43 @@ VERSION : 0.1
 // sem inversão, sem máscara, sem condicional. A interpretação NF (FALSE = acionado,
 // latch, fail-safe) é EXCLUSIVA do FB_MachineMode. Aqui é transporte fiel.
 
-   VAR_INPUT
-      i_EStop        : Bool;   // %I0.3 — cru (NF, NÃO inverter)
-      i_Stop         : Bool;   // %I0.7 — cru (NF, NÃO inverter)
-      i_Start        : Bool;   // %I0.6 — cru (NA)
-      i_Reset        : Bool;   // %I0.4 — cru (NA, pulso; borda fica no FB_MachineMode)
-      i_SensorBox    : Bool;   // %I0.5 — sensor da caixa na M1 (NA)
-      i_Rotating     : Bool;   // %I1.0 — feedback de rotação
-      i_ItemDetected : Bool;   // %I1.1 — caixa na ventosa
-      i_Xpos         : Real;   // %ID30 — posição X (V)
-      i_Zpos         : Real;   // %ID34 — posição Z (V)
-   END_VAR
+    VAR_INPUT
+        i_EStop : Bool;   // %I0.3 — cru (NF, NÃO inverter)
+        i_Stop : Bool;   // %I0.7 — cru (NF, NÃO inverter)
+        i_Start : Bool;   // %I0.6 — cru (NA)
+        i_Reset : Bool;   // %I0.4 — cru (NA, pulso; borda fica no FB_MachineMode)
+        i_SensorBox : Bool;   // %I0.5 — sensor da caixa na M1 (NA)
+        i_Rotating : Bool;   // %I1.0 — feedback de rotação
+        i_ItemDetected : Bool;   // %I1.1 — caixa na ventosa
+        i_Xpos : Real;   // %ID30 — posição X (V)
+        i_Zpos : Real;   // %ID34 — posição Z (V)
+    END_VAR
 
-   VAR_IN_OUT
-      io_Station : "typeStation";   // referência ao StationData.Station
-   END_VAR
+    VAR_IN_OUT
+        io_Station : "typeStation";   // referência ao StationData.Station
+    END_VAR
 
 BEGIN
 
-   REGION Comandos
-      // Cópia CRUA dos 4 comandos — EStop/Stop não invertidos (NF tratado no consumidor)
-      #io_Station.Cmd.EStop := #i_EStop;
-      #io_Station.Cmd.Stop  := #i_Stop;
-      #io_Station.Cmd.Start := #i_Start;
-      #io_Station.Cmd.Reset := #i_Reset;
-   END_REGION
+    REGION Comandos
+    // Cópia CRUA dos 4 comandos — EStop/Stop não invertidos (NF tratado no consumidor)
+        #io_Station.Cmd.EStop := #i_EStop;
+        #io_Station.Cmd.Stop := #i_Stop;
+        #io_Station.Cmd.Start := #i_Start;
+        #io_Station.Cmd.Reset := #i_Reset;
+    END_REGION
 
-   REGION Feedbacks
-      // Espelhos dos sensores de feedback no StationData.Sts
-      #io_Station.Sts.Rotating     := #i_Rotating;
-      #io_Station.Sts.ItemDetected := #i_ItemDetected;
-      #io_Station.Sts.SensorBox    := #i_SensorBox;
-   END_REGION
+    REGION Feedbacks
+    // Espelhos dos sensores de feedback no StationData.Sts
+        #io_Station.Sts.Rotating := #i_Rotating;
+        #io_Station.Sts.ItemDetected := #i_ItemDetected;
+        #io_Station.Sts.SensorBox := #i_SensorBox;
+    END_REGION
 
-   REGION Posicoes dos eixos
-      // Real (%ID, 32-bit) -> LReal (ampliação segura)
-      #io_Station.Sts.AxisX.PV := #i_Xpos;
-      #io_Station.Sts.AxisZ.PV := #i_Zpos;
-   END_REGION
+    REGION Posicoes dos eixos
+    // Real (%ID, 32-bit) -> LReal (ampliação segura)
+        #io_Station.Sts.AxisX.PV := #i_Xpos;
+        #io_Station.Sts.AxisZ.PV := #i_Zpos;
+    END_REGION
 
 END_FUNCTION

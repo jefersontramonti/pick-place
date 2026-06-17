@@ -7,84 +7,93 @@ VERSION : 0.1
 // Interface ESCALAR. Instanciada dentro do FB_PickPlaceSeq (CW e CCW) — NÃO chamar de OB
 // diretamente. Estado seguro (i_SafeState) tem prioridade: aborta a rotação em qualquer
 // estado -> IDLE com pulsos OFF no mesmo scan. Fonte: ARQUITETURA_PickPlace.md §2.8/§3.3.
-   VAR_INPUT
-      i_Trig      : Bool;   // dispara a sequência (Execute) — manter TRUE até o_Done (handshake)
-      i_Dir       : Bool;   // TRUE = CW, FALSE = CCW (travado na partida)
-      i_Rotating  : Bool;   // %I1.0 — braço em rotação (feedback)
-      i_SafeState : Bool;   // TRUE = aborta (estado seguro)
-   END_VAR
+    VAR_INPUT
+        i_Trig : Bool;   // dispara a sequência (Execute) — manter TRUE até o_Done (handshake)
+        i_Dir : Bool;   // TRUE = CW, FALSE = CCW (travado na partida)
+        i_Rotating : Bool;   // %I1.0 — braço em rotação (feedback)
+        i_SafeState : Bool;   // TRUE = aborta (estado seguro)
+    END_VAR
 
-   VAR_OUTPUT
-      o_PulseCW  : Bool;    // -> Rotate CW  (%Q1.2)
-      o_PulseCCW : Bool;    // -> Rotate CCW (%Q1.4)
-      o_Busy     : Bool;    // TRUE enquanto gira
-      o_Done     : Bool;    // TRUE ao concluir 180° (segura até i_Trig cair — handshake)
-   END_VAR
+    VAR_OUTPUT
+        o_PulseCW : Bool;    // -> Rotate CW  (%Q1.2)
+        o_PulseCCW : Bool;    // -> Rotate CCW (%Q1.4)
+        o_Busy : Bool;    // TRUE enquanto gira
+        o_Done : Bool;    // TRUE ao concluir 180° (segura até i_Trig cair — handshake)
+    END_VAR
 
-   VAR
-      s_State : Int := 0;   // 0 IDLE, 1 PULSE, 2 MOVING, 3 DONE
-      s_Dir   : Bool;       // sentido travado na partida (TRUE=CW)
-      s_Count : Int := 0;   // incrementos de 90° concluídos (0..2)
-      s_trig  : R_TRIG;     // borda de subida do trigger
-   END_VAR
+    VAR
+        s_State : Int := 0;   // 0 IDLE, 1 PULSE, 2 MOVING, 3 DONE
+        s_Dir : Bool;       // sentido travado na partida (TRUE=CW)
+        s_Count : Int := 0;   // incrementos de 90° concluídos (0..2)
+        s_trig : R_TRIG;     // borda de subida do trigger
+    END_VAR
 
 BEGIN
 
-   REGION Bordas
-      // Bordas — chamar todo scan
-      #s_trig(CLK := #i_Trig);
-   END_REGION
+    REGION Bordas
+    // Bordas — chamar todo scan
+        #s_trig(CLK := #i_Trig);
+    END_REGION
 
-   REGION Estado seguro
-      // Estado seguro: aborta a qualquer momento (prioridade sobre o CASE)
-      IF #i_SafeState THEN
-         #s_State := 0;
-      END_IF;
-   END_REGION
+    REGION Estado seguro
+    // Estado seguro: aborta a qualquer momento (prioridade sobre o CASE)
+        IF #i_SafeState THEN
+            #s_State := 0;
+        END_IF;
+    END_REGION
 
-   REGION Maquina de estados
-      CASE #s_State OF
-         0:  // IDLE — tudo desligado; aguarda trigger
-            #o_PulseCW := FALSE; #o_PulseCCW := FALSE; #o_Busy := FALSE; #o_Done := FALSE;
-            // Só inicia com o braço assentado (NOT i_Rotating) — guarda contra residual
-            IF #s_trig.Q AND NOT #i_SafeState AND NOT #i_Rotating THEN
-               #s_Dir   := #i_Dir;   // trava o sentido na partida
-               #s_Count := 0;
-               #s_State := 1;
-            END_IF;
+    REGION Maquina de estados
+        CASE #s_State OF
+            0 : // IDLE — tudo desligado; aguarda trigger
+                #o_PulseCW := FALSE;
+                #o_PulseCCW := FALSE;
+                #o_Busy := FALSE;
+                #o_Done := FALSE;
+                // Só inicia com o braço assentado (NOT i_Rotating) — guarda contra residual
+                IF #s_trig.Q AND NOT #i_SafeState AND NOT #i_Rotating THEN
+                    #s_Dir := #i_Dir;
+                    // trava o sentido na partida
+                    #s_Count := 0;
+                    #s_State := 1;
+                END_IF;
 
-         1:  // PULSE — emite o pulso (borda de subida) no sentido travado; segura até girar
-            #o_PulseCW  := #s_Dir;
-            #o_PulseCCW := NOT #s_Dir;
-            #o_Busy := TRUE;
-            IF #i_Rotating THEN       // modelo registrou o pulso e começou a girar
-               #s_State := 2;
-            END_IF;
+            1 : // PULSE — emite o pulso (borda de subida) no sentido travado; segura até girar
+                #o_PulseCW := #s_Dir;
+                #o_PulseCCW := NOT #s_Dir;
+                #o_Busy := TRUE;
+                IF #i_Rotating THEN
+                // modelo registrou o pulso e começou a girar
+                    #s_State := 2;
+                END_IF;
 
-         2:  // MOVING — pulso solto; espera a queda de Rotating (90° concluído)
+            2 : // MOVING — pulso solto; espera a queda de Rotating (90° concluído)
             // Detecção por NÍVEL gated por estado: só chega aqui APÓS o state 1 ver i_Rotating=TRUE,
             // então NOT i_Rotating = a queda do movimento atual (sem F_TRIG global, sem corrida).
-            #o_PulseCW := FALSE; #o_PulseCCW := FALSE;
-            #o_Busy := TRUE;
-            IF NOT #i_Rotating THEN   // 90° concluído
-               #s_Count := #s_Count + 1;
-               IF #s_Count >= 2 THEN
-                  #s_State := 3;       // 180° concluído
-               ELSE
-                  #s_State := 1;       // próximo pulso (novo flanco de subida)
-               END_IF;
-            END_IF;
+                #o_PulseCW := FALSE;
+                #o_PulseCCW := FALSE;
+                #o_Busy := TRUE;
+                IF NOT #i_Rotating THEN
+                // 90° concluído
+                    #s_Count := #s_Count + 1;
+                    IF #s_Count >= 2 THEN
+                        #s_State := 3;       // 180° concluído
+                    ELSE
+                        #s_State := 1;       // próximo pulso (novo flanco de subida)
+                    END_IF;
+                END_IF;
 
-         3:  // DONE — sinaliza conclusão; aguarda o consumidor soltar i_Trig (handshake)
-            #o_PulseCW := FALSE; #o_PulseCCW := FALSE; #o_Busy := FALSE;
-            #o_Done := TRUE;
-            IF NOT #i_Trig THEN
-               #s_State := 0;
-            END_IF;
+            3 : // DONE — sinaliza conclusão; aguarda o consumidor soltar i_Trig (handshake)
+                #o_PulseCW := FALSE;
+                #o_PulseCCW := FALSE;
+                #o_Busy := FALSE;
+                #o_Done := TRUE;
+                IF NOT #i_Trig THEN
+                    #s_State := 0;
+                END_IF;
 
-         ELSE
-            #s_State := 0;   // estado inválido -> seguro
-      END_CASE;
-   END_REGION
+            ELSE
+                #s_State := 0;   // estado inválido -> seguro
+        END_CASE;
+    END_REGION
 
 END_FUNCTION_BLOCK

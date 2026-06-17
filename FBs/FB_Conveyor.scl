@@ -1,0 +1,83 @@
+FUNCTION_BLOCK "FB_Conveyor"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+// FB_Conveyor: primitiva ESCALAR de esteira, instanciada 2x — M1 (entrada, COM sensor) e
+// M2 (saida, SEM sensor). Escreve o_Speed (LReal: i_Speed rodando / 0.0 parada). A M1 para
+// quando a caixa termina de passar pelo sensor (borda de descida de i_Sensor) apos
+// i_StopDelay, LATCHA (s_boxLatch) e sinaliza o_BoxArrived; so libera com i_Release. A M2
+// corre em RODANDO e pausa no deposito (i_ForcePause). FB multi-instancia (2x no OB_Main)
+// — NAO chamar de OB diretamente. Fonte: ARQUITETURA_PickPlace.md §2.9 + handoff.
+    VAR_INPUT
+        i_Run : Bool;    // permissao geral (FB_MachineMode.o_Run)
+        i_SafeState : Bool;    // TRUE = estado seguro -> 0 V
+        i_Speed : LReal;   // velocidade de regime (V) — Cfg.ConvSpeed
+        i_HasSensor : Bool;    // TRUE so p/ M1 (habilita box-stop)
+        i_Sensor : Bool;    // sensor M1 (TRUE = caixa presente) <- Sts.SensorBox
+        i_StopDelay : Time;    // atraso da borda ate parar M1 — Cfg.M1StopDelay
+        i_ForcePause : Bool;    // pausa M2 no deposito <- o_PauseM2
+        i_Release : Bool;    // pulso: libera o box-latch da M1 <- o_ReleaseM1
+    END_VAR
+
+    VAR_OUTPUT
+        o_Speed : LReal;   // 0.0 (parada/pausa/safe/latch) ou i_Speed
+        o_BoxArrived : Bool;    // (M1) caixa posicionada (= s_boxLatch, NIVEL)
+    END_VAR
+
+    VAR
+        s_fSensor : F_TRIG;    // borda de descida do sensor
+        s_rRel : R_TRIG;    // borda de subida do release
+        s_tDelay : TON_TIME;  // atraso pos-borda ate travar M1
+        s_boxLatch : Bool;      // TRUE = caixa posicionada / M1 travada parada
+        s_counting : Bool;      // contagem do delay em andamento (sustenta o IN do TON)
+    END_VAR
+
+BEGIN
+
+    REGION Bordas
+    // chamar os detectores de borda TODO scan
+        #s_fSensor(CLK := #i_Sensor);
+        #s_rRel(CLK := #i_Release);
+    END_REGION
+
+    REGION Box-stop da M1
+        IF #i_HasSensor THEN
+        // 1) RELEASE primeiro (limpa o latch) — ordem importa p/ re-arm no mesmo scan
+            IF #s_rRel.Q THEN
+                #s_boxLatch := FALSE;
+            END_IF;
+
+            // 2) inicia a contagem na borda de descida, se nao ha caixa travada
+            IF #s_fSensor.Q AND NOT #s_boxLatch THEN
+                #s_counting := TRUE;
+            END_IF;
+            // cancela se o sensor voltar a TRUE antes do delay (glitch / caixa nao passou)
+            IF #i_Sensor THEN
+                #s_counting := FALSE;
+            END_IF;
+
+            // 3) delay -> trava M1
+            #s_tDelay(IN := #s_counting, PT := #i_StopDelay);
+            IF #s_tDelay.Q THEN
+                #s_boxLatch := TRUE;
+                #s_counting := FALSE;
+            END_IF;
+        ELSE
+        // M2 / sem sensor: nunca latcha (sem contagem espuria)
+            #s_boxLatch := FALSE;
+            #s_counting := FALSE;
+            #s_tDelay(IN := FALSE, PT := T#0ms);   // mantem a instancia do timer "viva"
+        END_IF;
+
+        #o_BoxArrived := #s_boxLatch;
+    END_REGION
+
+    REGION Geracao de velocidade
+    // Qualquer condicao de parada -> 0.0; senao velocidade de regime.
+        IF NOT #i_Run OR #i_SafeState OR #i_ForcePause OR #s_boxLatch THEN
+            #o_Speed := 0.0;
+        ELSE
+            #o_Speed := #i_Speed;
+        END_IF;
+    END_REGION
+
+END_FUNCTION_BLOCK
