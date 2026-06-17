@@ -166,6 +166,11 @@ Estáticos (não precisam manutenção): `scl4.md`, `creating SCL programs.md` (
   (conversões implícitas podem gerar resultados errados).
 - **Escala analógica:** posições e velocidades são tensões 0–10 V; usar `NORM_X`/`SCALE_X`
   para converter V ↔ unidade de engenharia, com `LIMIT` (clamp).
+- **LReal → TIME:** **NÃO existe `LREAL_TO_TIME`** no compilador TIA/MHJ (o linter MCP o aceita,
+  mas o TIA recusa). Converter via DInt (TIME é DInt em ms): `DINT_TO_TIME(LREAL_TO_DINT(ms))`.
+- **MCP ≠ compilador TIA:** o linter MCP do WebStorm valida sintaxe/estrutura, mas **não é 100%
+  fiel** ao compilador real do TIA (ex.: aceitou `LREAL_TO_TIME` inexistente). A **compilação no
+  TIA Portal é a validação definitiva** — recompilar lá após gerar/alterar blocos.
 
 ## Intertravamentos e segurança (garantir na implementação)
 

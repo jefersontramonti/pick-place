@@ -39,7 +39,7 @@ BEGIN
             #t_halfSlow := 1000.0 / (2.0 * #i_SlowHz);
             // TON auto-rearmado: Q pulsa 1 scan a cada meio-período
             #s_tSlow(IN := NOT #s_tSlow.Q,
-            PT := LREAL_TO_TIME(#t_halfSlow));
+            PT := DINT_TO_TIME(LREAL_TO_DINT(#t_halfSlow)));
             // a cada pulso de Q, inverte o nível -> onda quadrada
             IF #s_tSlow.Q THEN
                 #s_SlowState := NOT #s_SlowState;
@@ -61,7 +61,7 @@ BEGIN
             #t_halfFast := 1000.0 / (2.0 * #i_FastHz);
             // TON auto-rearmado: Q pulsa 1 scan a cada meio-período
             #s_tFast(IN := NOT #s_tFast.Q,
-            PT := LREAL_TO_TIME(#t_halfFast));
+            PT := DINT_TO_TIME(LREAL_TO_DINT(#t_halfFast)));
             // a cada pulso de Q, inverte o nível -> onda quadrada
             IF #s_tFast.Q THEN
                 #s_FastState := NOT #s_FastState;

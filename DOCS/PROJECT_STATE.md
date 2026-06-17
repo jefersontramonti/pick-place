@@ -236,3 +236,59 @@
   `i_Reset := Cmd.Reset`, `io_Station := "StationData".Station`, `o_Fault → MachineMode.i_SeqFault`,
   `o_RotCW/CCW → FC_IoMapOutputs`, `o_ReleaseM1 → Conveyor M1.i_Release`, `o_PauseM2 → Conveyor M2.i_ForcePause`.
   DB de instância e tags físicas: criados no TIA Portal.
+
+## Sessão 2026-06-16 (cont. — implementação completa da lógica, 13/13)
+
+### Blocos criados/modificados
+- **Lógica SCL 100% implementada** via `/new-block` (pipeline architect→handoff→developer→
+  reviewer→safety por bloco), todos validados no linter MCP:
+- `UDTs/typeAxis.scl`, `UDTs/typeStation.scl` (+`Sts.SensorBox`); `DBs/StationData.scl`.
+- `FCs/FC_ScaleVolt.scl` (V↔eng, protegido), `FC_IoMapInputs.scl` (cópia crua %I/%ID→DB),
+  `FC_IoMapOutputs.scl` (DB→%Q/%QD com máscara de safe-state; decisão B: luzes/rot por VAR_INPUT).
+- `FBs/FB_ClockGen.scl` (pisca TON_TIME), `FB_AxisPos.scl` (posição+freeze), `FB_Rotate180.scl`
+  (2 pulsos handshake por nível), `FB_Conveyor.scl` (M1 box-stop+release / M2 pause),
+  `FB_MachineMode.scl` (núcleo fail-safe), `FB_PickPlaceSeq.scl` (FSM 0..16+99).
+- `OBs/OB_Main.scl` (OB1 orquestrador, 7 chamadas na ordem §4, tags reais do TIA).
+- Infra: hook `memory-update-reminder.ps1` (SessionStart compact|resume — PreCompact não injeta
+  contexto); permissões "autônomo mas limitado"; agentes developer/motion → opus; `GUIA_AGENTES.md`
+  (local/gitignored, p/ vídeo); `ARQUITETURA_PickPlace.md`, `Componentes_FactoryIO.md` (novos).
+
+### Decisões de arquitetura (já refletidas em CLAUDE.md / ARQUITETURA / Estado atual)
+- **I/O isolada em 2 FCs** (`FC_IoMapInputs/Outputs`); tudo flui pelo DB `StationData` (IN_OUT).
+- **Eixos = posicionamento analógico** (V), não MC_*/TO. **Rotação por pulso** (handshake por
+  nível, sem F_TRIG global). **Latch de falha ÚNICO** no `FB_PickPlaceSeq` (`o_Fault` nível);
+  `FB_MachineMode` só reflete (FALHA por nível) — sem double-latch.
+- **CLEAR de falha gateado por `i_EStop` físico** (não `o_SafeState`, que causa deadlock).
+- **Realimentações no OB** (release/pause/seqFault) via valores persistidos (DB / DB de
+  instância) — latência 1 scan inócua (níveis). **R1 anti-esmagamento:** captura PV no contato.
+- **Sinalização FALHA = vermelho fixo** (a confirmar). **Vácuo no E-Stop = (i) soltar** (a confirmar).
+
+### Bugs encontrados e resoluções (o pipeline multi-agente pagou-se)
+- `FB_Rotate180`: **[CRÍTICO]** corrida na borda de descida de `Rotating` (F_TRIG global consumido
+  tarde) → trocado p/ detecção por **nível gated por estado**.
+- `FB_MachineMode`: **[ALTO]** double-latch de falha (CLEAR mal condicionado) → latch único movido
+  p/ `FB_PickPlaceSeq`; FALHA por nível.
+- `FB_PickPlaceSeq`: **[CRÍTICO]** deadlock do reset (`NOT i_SafeState` insatisfável na falha →
+  máquina presa em FALHA) → CLEAR por `s_rReset.Q AND i_EStop`. **[ALTO]** trava silenciosa
+  (timeout não cobria a espera da guarda; `s_stepIsMove` dentro do IF) → movido p/ fora da guarda.
+- `StationData`: "1" acidental coladо (`END_DATA_BLOCK1`) → corrigido. Reformatações do WebStorm
+  (indentação/comentários) em vários `.scl` → benignas, revalidadas.
+- **1º compile no TIA (MHJ S7-1500): 2 erros + 2 warnings.** `FB_ClockGen` usava `LREAL_TO_TIME`
+  (aceito pelo linter MCP, mas **inexistente no compilador TIA**) → corrigido p/
+  `DINT_TO_TIME(LREAL_TO_DINT(ms))`; **0 erros após a correção (confirmado no TIA)**. Lição: o
+  **linter MCP não é 100% fiel ao compilador TIA** (nomes de função) — compilar no TIA é a
+  validação definitiva (registrado no CLAUDE.md "Cuidados importantes"). `FB_AxisPos.o_SetPointCmd`
+  ganhou `:= 0.0` (silencia warning de não-init, benigno). Warning "I/O não configurado no
+  hardware" = configurar módulos/endereços no TIA (Device Config), não é código.
+
+### Próximos passos
+- **TIA Portal** (não vira `.scl`): tag table (24 tags, `tags.md` §6; `%ID/%QD`=Real); 5 DBs de
+  instância (`FB_ClockGen_DB`, `FB_MachineMode_DB`, `FB_Conveyor_M1_DB`, `FB_Conveyor_M2_DB`,
+  `FB_PickPlaceSeq_DB`); atribuir `OB_Main` ao OB1; calibrar `Cfg.*`.
+- **PLCSIM** (test-sim-engineer): ciclo 1–16, E-Stop/Stop/Reset, falhas/timeouts, anticolisão;
+  **§9.2**: setpoints/tolerância/velocidade exatos, polaridade NC/NO real, debounce de `i_Rotating`,
+  espaçamento de caixas no release da M1, R1 (parada por SP congelado vs. carga).
+- **Decisões do usuário pendentes:** sinalização FALHA (vermelho fixo?); vácuo no E-Stop (i) soltar
+  vs (ii) segurar.
+- **Normativo:** E-Stop sobre eixos/rotação/esteiras com risco a pessoas exigiria F-CPU/PROFIsafe
+  (lógica atual é standard fail-safe). Live-zero do AI (fio rompido em 0–10 V) indetectável.

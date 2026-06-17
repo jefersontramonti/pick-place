@@ -18,7 +18,7 @@ VERSION : 0.1
     END_VAR
 
     VAR_OUTPUT
-        o_SetPointCmd : LReal;   // SP a escrever no %QD (mantém valor em freeze)
+        o_SetPointCmd : LReal := 0.0;   // SP a escrever no %QD (mantém valor em freeze; 0 V = seguro na energização)
         o_InPos : Bool;    // TRUE quando |SPcmd - PV| <= Tol estável por Debounce
     END_VAR
 

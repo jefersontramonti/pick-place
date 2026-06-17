@@ -44,58 +44,58 @@ BEGIN
     REGION 1 Entradas fisicas -> DB
     // Copia crua NF das entradas (%I/%ID) para "StationData".Station
         "FC_IoMapInputs"(i_EStop := "Emergency Stop 0",
-                         i_Stop := "Stop Button 0",
-                         i_Start := "Start Button 0",
-                         i_Reset := "Reset Button 0",
-                         i_SensorBox := "Sensor_caixa",
-                         i_Rotating := "Two-Axis Pick & Place 0 (Rotating)",
-                         i_ItemDetected := "Two-Axis Pick & Place 0 (Item Detected)",
-                         i_Xpos := "Two-Axis Pick & Place 0 X Position (V)",
-                         i_Zpos := "Two-Axis Pick & Place 0 Z Position (V)",
-                         io_Station := "StationData".Station);
+        i_Stop := "Stop Button 0",
+        i_Start := "Start Button 0",
+        i_Reset := "Reset Button 0",
+        i_SensorBox := "Sensor_caixa",
+        i_Rotating := "Two-Axis Pick & Place 0 (Rotating)",
+        i_ItemDetected := "Two-Axis Pick & Place 0 (Item Detected)",
+        i_Xpos := "Two-Axis Pick & Place 0 X Position (V)",
+        i_Zpos := "Two-Axis Pick & Place 0 Z Position (V)",
+        io_Station := "StationData".Station);
     END_REGION
 
     REGION 2 Clocks de pisca
     // Gera as ondas quadradas lenta/rapida para a sinalizacao
         "FB_ClockGen_DB"(i_SlowHz := "StationData".Station.Cfg.ClkSlowHz,
-                         i_FastHz := "StationData".Station.Cfg.ClkFastHz,
-                         o_Slow => #t_clkSlow,
-                         o_Fast => #t_clkFast);
+        i_FastHz := "StationData".Station.Cfg.ClkFastHz,
+        o_Slow => #t_clkSlow,
+        o_Fast => #t_clkFast);
     END_REGION
 
     REGION 3 Modo + sinalizacao + SafeState
     // i_SeqFault = Sts.Fault do scan anterior (latch unico no FB_PickPlaceSeq)
         "FB_MachineMode_DB"(i_Start := "StationData".Station.Cmd.Start,
-                            i_Stop := "StationData".Station.Cmd.Stop,
-                            i_EStop := "StationData".Station.Cmd.EStop,
-                            i_Reset := "StationData".Station.Cmd.Reset,
-                            i_SeqFault := "StationData".Station.Sts.Fault,
-                            i_ClkSlow := #t_clkSlow,
-                            i_ClkFast := #t_clkFast,
-                            o_Mode => #t_mode,
-                            o_Run => #t_run,
-                            o_SafeState => #t_safeState,
-                            o_Red => #t_red,
-                            o_Green => #t_green,
-                            o_Yellow => #t_yellow,
-                            o_StartLite => #t_startLite,
-                            o_StopLite => #t_stopLite,
-                            o_ResetLite => #t_resetLite);
+        i_Stop := "StationData".Station.Cmd.Stop,
+        i_EStop := "StationData".Station.Cmd.EStop,
+        i_Reset := "StationData".Station.Cmd.Reset,
+        i_SeqFault := "StationData".Station.Sts.Fault,
+        i_ClkSlow := #t_clkSlow,
+        i_ClkFast := #t_clkFast,
+        o_Mode => #t_mode,
+        o_Run => #t_run,
+        o_SafeState => #t_safeState,
+        o_Red => #t_red,
+        o_Green => #t_green,
+        o_Yellow => #t_yellow,
+        o_StartLite => #t_startLite,
+        o_StopLite => #t_stopLite,
+        o_ResetLite => #t_resetLite);
         "StationData".Station.Sts.Mode := #t_mode;   // espelho p/ HMI
     END_REGION
 
     REGION 4 Esteira M1 (com sensor)
     // i_Release do DB de instancia da sequencia (nivel do scan anterior)
         "FB_Conveyor_M1_DB"(i_Run := #t_run,
-                            i_SafeState := #t_safeState,
-                            i_Speed := "StationData".Station.Cfg.ConvSpeed,
-                            i_HasSensor := TRUE,
-                            i_Sensor := "StationData".Station.Sts.SensorBox,
-                            i_StopDelay := "StationData".Station.Cfg.M1StopDelay,
-                            i_ForcePause := FALSE,
-                            i_Release := "FB_PickPlaceSeq_DB".o_ReleaseM1,
-                            o_Speed => #t_m1Speed,
-                            o_BoxArrived => #t_boxM1);
+        i_SafeState := #t_safeState,
+        i_Speed := "StationData".Station.Cfg.ConvSpeed,
+        i_HasSensor := TRUE,
+        i_Sensor := "StationData".Station.Sts.SensorBox,
+        i_StopDelay := "StationData".Station.Cfg.M1StopDelay,
+        i_ForcePause := FALSE,
+        i_Release := "FB_PickPlaceSeq_DB".o_ReleaseM1,
+        o_Speed => #t_m1Speed,
+        o_BoxArrived => #t_boxM1);
         "StationData".Station.Sts.M1Speed := #t_m1Speed;
         "StationData".Station.Sts.BoxAtPick := #t_boxM1;
     END_REGION
@@ -103,56 +103,56 @@ BEGIN
     REGION 5 Esteira M2 (sem sensor)
     // i_ForcePause do DB de instancia da sequencia (nivel passos 9..13)
         "FB_Conveyor_M2_DB"(i_Run := #t_run,
-                            i_SafeState := #t_safeState,
-                            i_Speed := "StationData".Station.Cfg.ConvSpeed,
-                            i_HasSensor := FALSE,
-                            i_Sensor := FALSE,
-                            i_StopDelay := T#0ms,
-                            i_ForcePause := "FB_PickPlaceSeq_DB".o_PauseM2,
-                            i_Release := FALSE,
-                            o_Speed => #t_m2Speed,
-                            o_BoxArrived => #t_boxM2);
+        i_SafeState := #t_safeState,
+        i_Speed := "StationData".Station.Cfg.ConvSpeed,
+        i_HasSensor := FALSE,
+        i_Sensor := FALSE,
+        i_StopDelay := T#0ms,
+        i_ForcePause := "FB_PickPlaceSeq_DB".o_PauseM2,
+        i_Release := FALSE,
+        o_Speed => #t_m2Speed,
+        o_BoxArrived => #t_boxM2);
         "StationData".Station.Sts.M2Speed := #t_m2Speed;
     END_REGION
 
     REGION 6 Sequencia Pick & Place
     // Escreve Sts.* via io_Station; aqui so capturamos RotCW/CCW p/ o FC de saida
         "FB_PickPlaceSeq_DB"(i_Run := #t_run,
-                             i_SafeState := #t_safeState,
-                             i_Reset := "StationData".Station.Cmd.Reset,
-                             i_EStop := "StationData".Station.Cmd.EStop,
-                             o_RotCW => #t_rotCW,
-                             o_RotCCW => #t_rotCCW,
-                             io_Station := "StationData".Station);
+        i_SafeState := #t_safeState,
+        i_Reset := "StationData".Station.Cmd.Reset,
+        i_EStop := "StationData".Station.Cmd.EStop,
+        o_RotCW => #t_rotCW,
+        o_RotCCW => #t_rotCCW,
+        io_Station := "StationData".Station);
     END_REGION
 
     REGION 7 DB -> saidas fisicas (com mascara de estado seguro)
     // Ultima barreira: o FC zera M1/M2/Grab/Rotate em i_SafeState
         "FC_IoMapOutputs"(i_SafeState := #t_safeState,
-                          i_Red := #t_red,
-                          i_Green := #t_green,
-                          i_Yellow := #t_yellow,
-                          i_ResetLite := #t_resetLite,
-                          i_StartLite := #t_startLite,
-                          i_StopLite := #t_stopLite,
-                          i_RotCW := #t_rotCW,
-                          i_RotCCW := #t_rotCCW,
-                          io_Station := "StationData".Station,
-                          o_ResetLite => "Reset Button 0 (Light)",
-                          o_Red => "Stack Light 0 (Red)",
-                          o_Green => "Stack Light 0 (Green)",
-                          o_Yellow => "Stack Light 0 (Yellow)",
-                          o_StartLite => "Start Button 0 (Light)",
-                          o_StopLite => "Stop Button 0 (Light)",
-                          o_Grab => "Two-Axis Pick & Place 0 (Grab)",
-                          o_RotCW => "Two-Axis Pick & Place 0 Rotate CW",
-                          o_GripCW => "Two-Axis Pick & Place 0 Gripper CW",
-                          o_RotCCW => "Two-Axis Pick & Place 0 Rotate CCW",
-                          o_GripCCW => "Two-Axis Pick & Place 0 Gripper CCW",
-                          o_M1 => "M1",
-                          o_M2 => "M2",
-                          o_Xsp => "Two-Axis Pick & Place 0 X Set Point (V)",
-                          o_Zsp => "Two-Axis Pick & Place 0 Z Set Point (V)");
+        i_Red := #t_red,
+        i_Green := #t_green,
+        i_Yellow := #t_yellow,
+        i_ResetLite := #t_resetLite,
+        i_StartLite := #t_startLite,
+        i_StopLite := #t_stopLite,
+        i_RotCW := #t_rotCW,
+        i_RotCCW := #t_rotCCW,
+        io_Station := "StationData".Station,
+        o_ResetLite => "Reset Button 0 (Light)",
+        o_Red => "Stack Light 0 (Red)",
+        o_Green => "Stack Light 0 (Green)",
+        o_Yellow => "Stack Light 0 (Yellow)",
+        o_StartLite => "Start Button 0 (Light)",
+        o_StopLite => "Stop Button 0 (Light)",
+        o_Grab => "Two-Axis Pick & Place 0 (Grab)",
+        o_RotCW => "Two-Axis Pick & Place 0 Rotate CW",
+        o_GripCW => "Two-Axis Pick & Place 0 Gripper CW",
+        o_RotCCW => "Two-Axis Pick & Place 0 Rotate CCW",
+        o_GripCCW => "Two-Axis Pick & Place 0 Gripper CCW",
+        o_M1 => "M1",
+        o_M2 => "M2",
+        o_Xsp => "Two-Axis Pick & Place 0 X Set Point (V)",
+        o_Zsp => "Two-Axis Pick & Place 0 Z Set Point (V)");
     END_REGION
 
 END_ORGANIZATION_BLOCK
