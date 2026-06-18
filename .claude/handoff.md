@@ -1,121 +1,115 @@
-# Handoff: OB_Main (OB1) — orquestrador final (bloco 13/13)
+# Handoff: implementar referenciamento da ROTAÇÃO via sensor HOME (do scl-architect)
 
-**Decisão de arquitetura:** OB1 cíclico. Orquestra o scan da estação na ordem da §4:
-`FC_IoMapInputs → FB_ClockGen → FB_MachineMode → FB_Conveyor(M1) → FB_Conveyor(M2) →
-FB_PickPlaceSeq → FC_IoMapOutputs`. **NÃO contém lógica de processo** — só roteia I/O (tags
-físicas reais do TIA) e encadeia os FCs/FBs, propagando `o_SafeState` a todos no mesmo scan.
-Fonte: `ARQUITETURA_PickPlace.md` §4 + plano do `scl-architect`.
+**Tag física real (já criada pelo usuário no FACTORY I/O):**
+`"Inductive Sensor 0"` = **`%I1.3`**, Bool, indutivo **NA (NO)** → **TRUE = braço na casa (virado p/ M1)**.
+> Usar ESSE nome exato (`"Inductive Sensor 0"`) no `OB_Main` — não o nome sugerido pelo arquiteto.
+> Polaridade real confirma-se no PLCSIM (resolver no FACTORY I/O como em `Sensor_caixa`/`Item Detected`).
 
-## Resolução das 3 realimentações (produtor roda DEPOIS do consumidor)
-Usar valores **persistidos** (latência de 1 scan — inócua: os 3 são níveis sustentados, nunca
-pulsos): `i_SeqFault := "StationData".Station.Sts.Fault`; conveyors leem
-`"FB_PickPlaceSeq_DB".o_ReleaseM1` / `.o_PauseM2` (VAR_OUTPUT retido no DB de instância). **Não**
-adicionar campos ao `typeStation`. **Não** usar VAR_TEMP para essas 3 entradas (TEMP nasce
-indefinido a cada scan e quebraria o feedback).
+## Objetivo
+Recuperar a orientação do braço após parada (E-Stop/Stop) no meio do giro (90° pós-pega ou 180°
+lado M2). Hoje o homing do IDLE recupera só X/Z; a rotação é cega (pulsos, sem ângulo absoluto).
+Confirmado: Step=0 com braço a 90°/180°.
 
-## Estrutura + VAR_TEMP (só sinais consumidos no MESMO scan)
+## Ordem de implementação (validar CADA `.scl` no MCP antes de seguir)
+
+### 1. `UDTs/typeStation.scl` — +1 campo em `Sts`
+Adicionar (junto dos outros feedbacks): `RotHome : Bool;   // %I1.3 espelhado — braço na casa (M1)`.
+
+### 2. `FBs/FB_RotateToHome.scl` — NOVO bloco
+Primitiva escalar: gira **CCW** até o sensor HOME, reusando o handshake por NÍVEL do `FB_Rotate180`
+(pulso → espera Rotating subir → espera cair = 90°), mas o critério de parada é `i_AtHome` após cada
+queda, NÃO contagem. `{ S7_Optimized_Access := 'TRUE' }`, comentários PT.
 ```
-ORGANIZATION_BLOCK "OB_Main"
-{ S7_Optimized_Access := 'TRUE' }
-VERSION : 0.1
-VAR_TEMP
-   t_clkSlow, t_clkFast : Bool;                 // FB_ClockGen -> MachineMode
-   t_run, t_safeState : Bool;                   // FB_MachineMode -> conveyors/seq/FC
-   t_mode : Int;
-   t_red, t_green, t_yellow, t_startLite, t_stopLite, t_resetLite : Bool;  // MachineMode -> FC
-   t_rotCW, t_rotCCW : Bool;                     // FB_PickPlaceSeq -> FC
-   t_m1Speed, t_m2Speed : LReal;                // FB_Conveyor -> DB
-   t_boxM1, t_boxM2 : Bool;                      // o_BoxArrived (M2 descartado)
+VAR_INPUT
+    i_Trig      : Bool;   // dispara; manter TRUE ate o_Done (handshake)
+    i_AtHome    : Bool;   // Sts.RotHome (referencia absoluta)
+    i_Rotating  : Bool;   // %I1.0 espelhado
+    i_SafeState : Bool;   // aborta -> IDLE, pulso OFF no mesmo scan (prioridade maxima)
+    i_MaxSteps  : Int;    // teto de pulsos de 90 (anti-laco-infinito); ex.: 4
+END_VAR
+VAR_OUTPUT
+    o_PulseCCW  : Bool;   // -> Rotate CCW
+    o_Busy      : Bool;
+    o_Done      : Bool;   // segura ao detectar AtHome (handshake)
+    o_Fault     : Bool;   // estourou i_MaxSteps sem achar home (sensor preso) -> falha
+END_VAR
+VAR
+    s_State : Int := 0;   // 0 IDLE,1 PULSE,2 MOVING,3 DONE,4 FAULT
+    s_Count : Int := 0;
+    s_trig  : R_TRIG;
 END_VAR
 ```
-
-## Sequência de chamadas (corpo do OB) — usar as tags reais COM ASPAS
+FSM:
 ```
-// 1) Entradas físicas -> DB (cópia crua NF)
-"FC_IoMapInputs"(i_EStop:="Emergency Stop 0", i_Stop:="Stop Button 0",
-   i_Start:="Start Button 0", i_Reset:="Reset Button 0", i_SensorBox:="Sensor_caixa",
-   i_Rotating:="Two-Axis Pick & Place 0 (Rotating)",
-   i_ItemDetected:="Two-Axis Pick & Place 0 (Item Detected)",
-   i_Xpos:="Two-Axis Pick & Place 0 X Position (V)",
-   i_Zpos:="Two-Axis Pick & Place 0 Z Position (V)",
-   io_Station:="StationData".Station);
-
-// 2) Clocks de pisca
-"FB_ClockGen_DB"(i_SlowHz:="StationData".Station.Cfg.ClkSlowHz,
-   i_FastHz:="StationData".Station.Cfg.ClkFastHz, o_Slow=>#t_clkSlow, o_Fast=>#t_clkFast);
-
-// 3) Modo + sinalização + SafeState (i_SeqFault = Sts.Fault do scan anterior)
-"FB_MachineMode_DB"(i_Start:="StationData".Station.Cmd.Start,
-   i_Stop:="StationData".Station.Cmd.Stop, i_EStop:="StationData".Station.Cmd.EStop,
-   i_Reset:="StationData".Station.Cmd.Reset, i_SeqFault:="StationData".Station.Sts.Fault,
-   i_ClkSlow:=#t_clkSlow, i_ClkFast:=#t_clkFast,
-   o_Mode=>#t_mode, o_Run=>#t_run, o_SafeState=>#t_safeState,
-   o_Red=>#t_red, o_Green=>#t_green, o_Yellow=>#t_yellow,
-   o_StartLite=>#t_startLite, o_StopLite=>#t_stopLite, o_ResetLite=>#t_resetLite);
-"StationData".Station.Sts.Mode := #t_mode;   // espelho p/ HMI
-
-// 4) Esteira M1 (com sensor); i_Release do DB de instância da sequência (scan anterior)
-"FB_Conveyor_M1_DB"(i_Run:=#t_run, i_SafeState:=#t_safeState,
-   i_Speed:="StationData".Station.Cfg.ConvSpeed, i_HasSensor:=TRUE,
-   i_Sensor:="StationData".Station.Sts.SensorBox,
-   i_StopDelay:="StationData".Station.Cfg.M1StopDelay, i_ForcePause:=FALSE,
-   i_Release:="FB_PickPlaceSeq_DB".o_ReleaseM1,
-   o_Speed=>#t_m1Speed, o_BoxArrived=>#t_boxM1);
-"StationData".Station.Sts.M1Speed   := #t_m1Speed;
-"StationData".Station.Sts.BoxAtPick := #t_boxM1;
-
-// 5) Esteira M2 (sem sensor); i_ForcePause do DB de instância da sequência
-"FB_Conveyor_M2_DB"(i_Run:=#t_run, i_SafeState:=#t_safeState,
-   i_Speed:="StationData".Station.Cfg.ConvSpeed, i_HasSensor:=FALSE, i_Sensor:=FALSE,
-   i_StopDelay:=T#0ms, i_ForcePause:="FB_PickPlaceSeq_DB".o_PauseM2, i_Release:=FALSE,
-   o_Speed=>#t_m2Speed, o_BoxArrived=>#t_boxM2);
-"StationData".Station.Sts.M2Speed := #t_m2Speed;
-
-// 6) Sequência (escreve Sts.* via io_Station; só capturamos RotCW/CCW p/ o FC)
-"FB_PickPlaceSeq_DB"(i_Run:=#t_run, i_SafeState:=#t_safeState,
-   i_Reset:="StationData".Station.Cmd.Reset, i_EStop:="StationData".Station.Cmd.EStop,
-   o_RotCW=>#t_rotCW, o_RotCCW=>#t_rotCCW, io_Station:="StationData".Station);
-
-// 7) DB -> saídas físicas, com máscara de estado seguro
-"FC_IoMapOutputs"(i_SafeState:=#t_safeState, i_Red:=#t_red, i_Green:=#t_green,
-   i_Yellow:=#t_yellow, i_ResetLite:=#t_resetLite, i_StartLite:=#t_startLite,
-   i_StopLite:=#t_stopLite, i_RotCW:=#t_rotCW, i_RotCCW:=#t_rotCCW,
-   io_Station:="StationData".Station,
-   o_ResetLite=>"Reset Button 0 (Light)", o_Red=>"Stack Light 0 (Red)",
-   o_Green=>"Stack Light 0 (Green)", o_Yellow=>"Stack Light 0 (Yellow)",
-   o_StartLite=>"Start Button 0 (Light)", o_StopLite=>"Stop Button 0 (Light)",
-   o_Grab=>"Two-Axis Pick & Place 0 (Grab)",
-   o_RotCW=>"Two-Axis Pick & Place 0 Rotate CW",
-   o_GripCW=>"Two-Axis Pick & Place 0 Gripper CW",
-   o_RotCCW=>"Two-Axis Pick & Place 0 Rotate CCW",
-   o_GripCCW=>"Two-Axis Pick & Place 0 Gripper CCW",
-   o_M1=>"M1", o_M2=>"M2",
-   o_Xsp=>"Two-Axis Pick & Place 0 X Set Point (V)",
-   o_Zsp=>"Two-Axis Pick & Place 0 Z Set Point (V)");
+s_trig(CLK := i_Trig);
+IF i_SafeState THEN s_State := 0; END_IF;   // prioridade: nao gira em estado seguro
+CASE s_State OF
+ 0: o_PulseCCW:=F; o_Busy:=F; o_Done:=F; o_Fault:=F;
+    IF i_AtHome THEN o_Done := TRUE;                       // ja em casa -> nao pulsa
+    ELSIF s_trig.Q AND NOT i_SafeState AND NOT i_Rotating THEN s_Count:=0; s_State:=1; END_IF;
+ 1: o_PulseCCW:=TRUE; o_Busy:=TRUE; IF i_Rotating THEN s_Count:=s_Count+1; s_State:=2; END_IF;
+ 2: o_PulseCCW:=FALSE; o_Busy:=TRUE;
+    IF NOT i_Rotating THEN                                 // 90 concluido (queda gated por estado)
+        IF i_AtHome THEN s_State:=3;
+        ELSIF s_Count >= i_MaxSteps THEN s_State:=4;
+        ELSE s_State:=1; END_IF; END_IF;
+ 3: o_PulseCCW:=FALSE; o_Done:=TRUE; IF NOT i_Trig THEN s_State:=0; END_IF;
+ 4: o_PulseCCW:=FALSE; o_Fault:=TRUE; IF NOT i_Trig THEN s_State:=0; END_IF;
+ ELSE s_State:=0;
+END_CASE;
 ```
-Regras: comentários PT, REGION (uma por etapa, opcional), `{ S7_Optimized_Access := 'TRUE' }`.
-Arquivo: `OBs/OB_Main.scl`. Conferir os **parâmetros formais** contra as interfaces reais dos
-FBs/FCs (nomes/tipos exatos). Pode atribuir a tag física diretamente ao `o_*` na chamada do FC
-de saída (válido em SCL).
+Cuidados (mesmos do FB_Rotate180 já validado): detecção por NÍVEL gated por estado (sem F_TRIG
+global); inicializações explícitas; o caso "já em casa" sinaliza o_Done sem pulsar (não congela).
 
-**⚠️ CAVEAT DE VALIDAÇÃO (esperado):** o linter MCP vai acusar como **não-declarados** as 24
-tags físicas (`"Emergency Stop 0"`, `"M1"`, …) e os 5 DBs de instância (`"FB_ClockGen_DB"`,
-`"FB_MachineMode_DB"`, `"FB_Conveyor_M1_DB"`, `"FB_Conveyor_M2_DB"`, `"FB_PickPlaceSeq_DB"`) —
-eles só existem no projeto TIA, não como `.scl`. **Isso é OK.** O que importa validar: sintaxe
-do OB, nomes/tipos dos **parâmetros formais** dos FBs/FCs e os acessos a `"StationData".Station.*`.
-Qualquer erro FORA dessas 24 tags + 5 DBs é real e deve ser corrigido. Reporte exatamente quais
-símbolos o linter acusou.
+### 3. `FCs/FC_IoMapInputs.scl` — +1 entrada
+`+ i_RotHome : Bool;   // %I1.3 — HOME de rotacao` na VAR_INPUT; na região Feedbacks:
+`#io_Station.Sts.RotHome := #i_RotHome;` (cópia crua).
 
-**Restrições de safety (safety-auditor valida):** ordem de chamada correta (SafeState propagado
-a todos no mesmo scan); E-Stop/Stop crus do `Cmd.*` (NF tratado no MachineMode); `i_SafeState`
-chega a Conveyors/PickPlaceSeq/FC_IoMapOutputs; máscara de saída por último. Latência de 1 scan
-nos 3 feedbacks (níveis) não compromete o estado seguro (a máscara do FC e o `i_SafeState` agem
-no mesmo scan).
+### 4. `FBs/FB_PickPlaceSeq.scl` — homing rotacional + malha do passo 15
+- **+VAR:** `s_RotHome : "FB_RotateToHome";` e `s_trigHome : Bool;`.
+- **Defaults do scan:** `+ #s_trigHome := FALSE;`.
+- **Estado 0 (IDLE/HOMING):** após confirmar Z em Z_up E X em X_home, ANTES de aceitar ciclo,
+  inserir o homing da rotação:
+  ```
+  IF NOT #io_Station.Sts.RotHome THEN
+      #s_trigHome := TRUE;        // dispara FB_RotateToHome (gira CCW ate HOME)
+      #s_stepIsMove := TRUE;      // timeout externo (anti-laco)
+      IF #s_RotHome.o_Fault THEN  // sensor nao achado -> falha de homing rotacao
+          IF NOT #s_Fault THEN #s_Fault := TRUE; #s_FaultCode := 3; END_IF;
+          #s_State := 99;
+      END_IF;
+  ELSE
+      // braco em casa: aceita partida (logica atual)
+      IF #io_Station.Cfg.Enabled AND #io_Station.Sts.BoxAtPick
+      AND NOT #i_SafeState AND NOT #s_Fault THEN #s_State := 1; END_IF;
+  END_IF;
+  ```
+  (a guarda de anticolisão Z up + X home já está garantida pelo aninhamento; o NOT Rotating está
+  dentro do FB_RotateToHome.)
+- **Chamada sub-FBs (região após o CASE):** chamar incondicionalmente:
+  `#s_RotHome(i_Trig:=#s_trigHome, i_AtHome:=#io_Station.Sts.RotHome, i_Rotating:=#io_Station.Sts.Rotating, i_SafeState:=#i_SafeState, i_MaxSteps:=4);`
+- **Espelha status (o_RotCCW):** OR com o homing —
+  `#o_RotCCW := #s_RotCCW.o_PulseCCW OR #s_RotHome.o_PulseCCW;` (homing é estado 0, passo 15 é outro
+  estado → nunca coexistem; mantém exclusão mútua com o_RotCW).
+- **Passo 15 (fechar a malha):** a transição passa a exigir também `RotHome`:
+  `IF #s_RotCCW.o_Done AND #io_Station.Sts.RotHome THEN #s_State := 16; END_IF;` (se o_Done vier
+  sem RotHome = deriva → timeout do passo 15 = FaultCode 3 → FALHA → homing recupera).
+- **NÃO** mudar a interface externa do FB_PickPlaceSeq (mesmas VAR_INPUT/OUTPUT/IN_OUT). O passo 7
+  (CW p/ M2) continua por contagem (`FB_Rotate180`) — não há sensor no lado M2.
 
-**Tags I/O reservadas (tag-io-documenter):** confirmar que TODAS as 24 tags da §2/§4/§5 do
-`tags.md` estão ligadas (entradas no FC_IoMapInputs; saídas no FC_IoMapOutputs) — nenhuma órfã,
-nenhuma faltando.
+### 5. `OBs/OB_Main.scl` — fiar a tag nova
+Na chamada do `FC_IoMapInputs` (região 1), adicionar o parâmetro:
+`i_RotHome := "Inductive Sensor 0",`.
 
-**Pendências TIA (não viram `.scl`):** criar a tag table (24 tags, endereços da §6 do tags.md;
-`%ID/%QD` = Real); criar os 5 DBs de instância com os nomes exatos acima; atribuir `OB_Main` ao
-OB1; conferir `Cfg.Enabled` e start values de calibração.
+## Restrições de safety (safety-auditor valida depois)
+- Homing NÃO gira em estado seguro (i_SafeState aborta o FB e o estado 0 está sob `IF i_Run`).
+- Anticolisão mantida (Z up + X home + NOT Rotating).
+- Anti-laço-infinito: dupla guarda (`i_MaxSteps` interno + `s_stepIsMove`/timeout externo → FALHA).
+- Falha de homing latcheia no FB_PickPlaceSeq (fonte única, o_Fault nível, FaultCode 3); sem double-latch.
+- Sensor HOME é standard (não F-safe) → mantém C-1 (acesso de pessoas exigiria F-CPU/STO).
+
+## Impacto no TIA (não vira `.scl`)
+- Criar a tag `"Inductive Sensor 0"` = `%I1.3` (o usuário já adicionou na cena).
+- `typeStation` muda → `StationData` recompila; `FB_PickPlaceSeq_DB` é regenerado (nova
+  multi-instância `s_RotHome`); nenhum DB de instância novo no nível do OB.
+- `tag-io-documenter`: adicionar `%I1.3` à §2/§6 do `tags.md`.

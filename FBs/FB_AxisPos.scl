@@ -4,9 +4,9 @@ VERSION : 0.1
 
 // FB_AxisPos: primitiva genérica de posicionamento de UM eixo analógico (interface ESCALAR).
 // Comanda o setpoint (o_SetPointCmd -> %QD), lê o feedback (i_PV <- %ID) e gera "em posição"
-// (o_InPos) por tolerância + debounce. CONGELA o eixo (segura o último SP) em estado seguro
-// ou desabilitado — o freeze é "não reatribuir" o_SetPointCmd (VAR_OUTPUT persiste no DB de
-// instância). Instanciada por eixo (X, Z) dentro do FB_PickPlaceSeq (multi-instância);
+// (o_InPos) por tolerância + debounce. Em ESTADO SEGURO congela na POSIÇÃO ATUAL (SP := PV,
+// segura onde está — não percorre ao destino); desabilitado, mantém o último destino.
+// Instanciada por eixo (X, Z) dentro do FB_PickPlaceSeq (multi-instância);
 // NÃO chamar de OB diretamente. Fonte: ARQUITETURA_PickPlace.md §2.7.
     VAR_INPUT
         i_Enable : Bool;    // FALSE = congela (não comanda novo SP)
@@ -29,10 +29,14 @@ VERSION : 0.1
 BEGIN
 
     REGION Comando de setpoint
-    // Comanda novo destino só se habilitado E fora de estado seguro.
-    // Caso contrário NÃO reatribui o_SetPointCmd -> ele MANTÉM o último valor (congela).
-    // (VAR_OUTPUT de FB persiste no DB de instância entre scans.)
-        IF #i_Enable AND NOT #i_SafeState THEN
+    // Estado seguro (i_SafeState): congela na POSICAO ATUAL (o_SetPointCmd := i_PV) — o eixo
+    // SEGURA ONDE ESTA, nao percorre ate o ultimo destino comandado. Este e o "estado seguro"
+    // real do eixo: evita que ele continue se movendo durante falha/E-Stop (achado A-1 — foi
+    // o que fez o robo descer na caixa). Habilitado e fora de safe: comanda o destino.
+    // Desabilitado e fora de safe: mantem o ultimo destino (VAR_OUTPUT persiste no DB).
+        IF #i_SafeState THEN
+            #o_SetPointCmd := #i_PV;
+        ELSIF #i_Enable THEN
             #o_SetPointCmd := #i_SetPoint;
         END_IF;
     END_REGION

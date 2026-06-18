@@ -38,6 +38,7 @@
 | `Two-Axis Pick & Place 0 (Rotating)` | `%I1.0` | Bool | NA | Braço em rotação (feedback de movimento) |
 | `Two-Axis Pick & Place 0 (Item Detected)` | `%I1.1` | Bool | NA | Caixa detectada na ventosa/posição de pega |
 | `Two-Axis Pick & Place 0 (Gripper Rotating)` | `%I1.2` | Bool | NA | Gripper em rotação (feedback) |
+| `Inductive Sensor 0` | `%I1.3` | Bool | NA | Braço na orientação de casa (home) — `TRUE` = braço virado p/ M1. **Espelhado** em `StationData.Station.Sts.RotHome` via `FC_IoMapInputs` (tag `i_RotHome`). Usado para referenciamento rotacional (homing) após falha |
 
 ---
 
@@ -100,25 +101,25 @@
 | Faixa | Direção | Conteúdo |
 |---|---|---|
 | `%I0.3 – %I0.7` | Entrada digital | Emergência, Reset, Sensor_caixa, Start, Stop |
-| `%I1.0 – %I1.2` | Entrada digital | Feedbacks do robô (Rotating, Item Detected, Gripper Rotating) |
+| `%I1.0 – %I1.3` | Entrada digital | Feedbacks do robô (Rotating, Item Detected, Gripper Rotating, Rot Home) |
 | `%ID30`, `%ID34` | Entrada analógica | Posição X, Posição Z (Real, V) |
 | `%Q0.3 – %Q1.0` | Saída digital | Luzes (botões + torre) |
 | `%Q1.1 – %Q1.5` | Saída digital | Vácuo, Rotate CW/CCW, Gripper CW/CCW |
 | `%QD30`, `%QD34` | Saída analógica | M1, M2 (velocidade, Real, V) |
 | `%QD38`, `%QD42` | Saída analógica | Setpoint X, Setpoint Z (Real, V) |
 
-> Bytes de entrada digital usados: `%IB0` (bits 3–7) e `%IB1` (bits 0–2).
+> Bytes de entrada digital usados: `%IB0` (bits 3–7) e `%IB1` (bits 0–3).
 > Bytes de saída digital usados: `%QB0` (bits 3–7) e `%QB1` (bits 0–5).
 
 ### 6.1 Roteamento centralizado de entradas (`FC_IoMapInputs`)
 
-**Todas as entradas físicas** (`%I0.3–%I1.2`, `%ID30`, `%ID34`) são lidas num **ponto único**
+**Todas as entradas físicas** (`%I0.3–%I1.3`, `%ID30`, `%ID34`) são lidas num **ponto único**
 no início do scan: a **função `FC_IoMapInputs`** (chamada no começo do `OB_Main`). Esta FC:
 
 - **Lê os bits/valores brutos** das entradas físicas (sem inversão, sem condicional, sem máscara);
 - **Escreve para `StationData.Station`** via `VAR_IN_OUT`:
   - `Cmd.*` (EStop, Stop, Start, Reset) — **cópia crua, NF/NA preservados**;
-  - `Sts.*` (Rotating, ItemDetected, SensorBox) — espelhos de feedback;
+  - `Sts.*` (Rotating, ItemDetected, RotHome, SensorBox) — espelhos de feedback;
   - `Sts.AxisX.PV`, `Sts.AxisZ.PV` — posições (conversão `Real→LReal`).
 
 **Garantias de segurança:** cópia fiel dos sinais de emergência (`%I0.3 EStop`, `%I0.7 Stop`),

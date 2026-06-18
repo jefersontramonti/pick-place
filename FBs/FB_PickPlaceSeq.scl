@@ -37,6 +37,7 @@ VERSION : 0.1
         s_AxisZ : "FB_AxisPos";
         s_RotCW : "FB_Rotate180";
         s_RotCCW : "FB_Rotate180";
+        s_RotHome : "FB_RotateToHome";   // referenciamento da rotacao via sensor HOME (%I1.3)
         s_tStep : TON_TIME;    // timeout de passo (PT := Cfg.SeqStepTimeout)
         s_Fault : Bool;
         s_FaultCode : Int;
@@ -47,6 +48,7 @@ VERSION : 0.1
         s_zTarget : LReal;
         s_trigCW : Bool;
         s_trigCCW : Bool;
+        s_trigHome : Bool;     // dispara o referenciamento da rotacao (homing rotacional, estado 0)
         s_grab : Bool;         // nivel do vacuo (liga passo 3, desliga passo 11)
         s_PrevState : Int;     // passo do scan anterior (re-arma o timeout)
         s_stepIsMove : Bool;   // passo atual e de movimento (habilita timeout)
@@ -90,6 +92,7 @@ BEGIN
         #s_zEnable := FALSE;
         #s_trigCW := FALSE;
         #s_trigCCW := FALSE;
+        #s_trigHome := FALSE;
         #o_ReleaseM1 := FALSE;
         #o_PauseM2 := FALSE;
         #o_CycleDone := FALSE;
@@ -97,14 +100,51 @@ BEGIN
     END_REGION
 
     REGION FSM
-    // CASE decide os intermediarios + transicoes + SET de falha (codigos 4/5).
-    // Helpers de posicao confirmam o DESTINO (nao basta InPos generico).
+    // CASE decide os intermediarios + transicoes + SET de falha (codigo 4 = sem caixa).
+    // Helpers de posicao confirmam o DESTINO: InPos + ABS(PV - destino) <= PosTol (NUNCA so InPos).
         CASE #s_State OF
-            0 : // IDLE — tudo desligado; aguarda condicao de partida
+            0 : // IDLE/HOMING — em RODANDO, referencia o robo (sobe Z, depois X->home) antes
+                // de aceitar novo ciclo. Recupera de falha que parou o robo fora de casa
+                // (achados M-3/A-1 / "problema 2"). Sem RODANDO nao comanda eixos (congelam).
+                // Timeout so durante o homing (s_stepIsMove), nunca na espera pela caixa.
                 #s_grab := FALSE;
-                IF #i_Run AND #io_Station.Cfg.Enabled AND #io_Station.Sts.BoxAtPick
-                AND NOT #i_SafeState AND NOT #s_Fault THEN
-                    #s_State := 1;
+                IF #i_Run THEN
+                    #s_zEnable := TRUE;
+                    #s_zTarget := #io_Station.Cfg.Z_up;          // sobe Z primeiro (anticolisao)
+                    IF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
+                        #s_xEnable := TRUE;
+                        #s_xTarget := #io_Station.Cfg.X_home;    // com Z em cima, leva X para home
+                        IF #io_Station.Sts.AxisX.InPos
+                        AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol THEN
+                        // X/Z em casa (anticolisao garantida pelo aninhamento: Z up + X home).
+                        // Antes de aceitar o ciclo, REFERENCIA a rotacao: se o braco nao esta
+                        // na casa (RotHome), gira CCW ate o sensor HOME (s_RotHome). O NOT
+                        // Rotating fica dentro do FB_RotateToHome.
+                            IF NOT #io_Station.Sts.RotHome THEN
+                                #s_trigHome := TRUE;             // dispara o homing rotacional
+                                #s_stepIsMove := TRUE;           // timeout externo (anti-laco)
+                                IF #s_RotHome.o_Fault THEN
+                                // sensor HOME nao achado -> falha de homing da rotacao (codigo 3)
+                                    IF NOT #s_Fault THEN
+                                        #s_Fault := TRUE;
+                                        #s_FaultCode := 3;
+                                    END_IF;
+                                    #s_State := 99;
+                                END_IF;
+                            ELSE
+                            // braco em casa: aguarda condicao de partida (sem timeout)
+                                IF #io_Station.Cfg.Enabled AND #io_Station.Sts.BoxAtPick
+                                AND NOT #i_SafeState AND NOT #s_Fault THEN
+                                    #s_State := 1;
+                                END_IF;
+                            END_IF;
+                        ELSE
+                            #s_stepIsMove := TRUE;               // levando X para home
+                        END_IF;
+                    ELSE
+                        #s_stepIsMove := TRUE;                   // subindo Z
+                    END_IF;
                 END_IF;
 
             1 : // Move X para pega (guarda: Z em Z_up)
@@ -114,7 +154,8 @@ BEGIN
                 AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol THEN
                     #s_xEnable := TRUE;
                     #s_xTarget := #io_Station.Cfg.X_pick;
-                    IF #io_Station.Sts.AxisX.InPos THEN
+                    IF #io_Station.Sts.AxisX.InPos
+                    AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_pick) <= #io_Station.Cfg.PosTol THEN
                         #s_State := 2;
                     END_IF;
                 END_IF;
@@ -132,8 +173,9 @@ BEGIN
                     // R1 anti-esmagamento: congela Z no ponto de contato (captura PV)
                         #s_zTarget := #io_Station.Sts.AxisZ.PV;
                         #s_State := 3;
-                    ELSIF #io_Station.Sts.AxisZ.InPos THEN
-                    // chegou ao limite sem item -> FALHA 4
+                    ELSIF #io_Station.Sts.AxisZ.InPos
+                    AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_pickLimit) <= #io_Station.Cfg.PosTol THEN
+                    // chegou DE FATO ao limite (Z em Z_pickLimit) sem item -> FALHA 4 (sem caixa)
                         IF NOT #s_Fault THEN
                             #s_Fault := TRUE;
                             #s_FaultCode := 4;
@@ -231,18 +273,19 @@ BEGIN
                     END_IF;
                 END_IF;
 
-            11 : // Solta vacuo (guarda: Z em Z_place); Z congelado em Z_place
+            11 : // Solta vacuo no deposito (guarda: Z em Z_place) e sobe em seguida.
+                // NAO espera NOT ItemDetected: nesta altura a peca depositada fica logo sob
+                // o sensor (segue TRUE). O vacuo ja desligou e a peca esta na M2; a subida
+                // (passo 12) afasta o sensor da peca.
+                // Transicao imediata (Z ja em Z_place vindo do passo 10) -> NAO marca
+                // s_stepIsMove (sem timeout; FaultCode 5 aposentado).
                 #o_PauseM2 := TRUE;
                 #s_grab := FALSE;
-                #s_stepIsMove := TRUE;
-                // timeout cobre tambem a espera da guarda
                 IF #io_Station.Sts.AxisZ.InPos
                 AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_place) <= #io_Station.Cfg.PosTol THEN
                     #s_zEnable := TRUE;
                     #s_zTarget := #io_Station.Cfg.Z_place;
-                    IF NOT #io_Station.Sts.ItemDetected THEN
-                        #s_State := 12;
-                    END_IF;
+                    #s_State := 12;
                 END_IF;
 
             12 : // Sobe Z para Z_up (vazio)
@@ -281,7 +324,10 @@ BEGIN
                 AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
                 AND NOT #io_Station.Sts.Rotating THEN
                     #s_trigCCW := TRUE;
-                    IF #s_RotCCW.o_Done THEN
+                    // Fecha a malha com o sensor: so avanca se a rotacao CCW concluiu E o
+                    // braco esta DE FATO na casa (RotHome). o_Done sem RotHome = deriva ->
+                    // timeout do passo 15 (FaultCode 3) -> FALHA -> homing recupera.
+                    IF #s_RotCCW.o_Done AND #io_Station.Sts.RotHome THEN
                         #s_State := 16;
                     END_IF;
                 END_IF;
@@ -299,6 +345,16 @@ BEGIN
         END_CASE;
     END_REGION
 
+    REGION Release M1 no reset
+    // No reset deliberado (apos falha), pulsa o release da M1 para LIMPAR o box-latch da
+    // esteira: ela volta a trazer caixas e o BoxAtPick deixa de ficar TRUE com caixa fantasma.
+    // Sem isto, apos a falha a M1 fica travada (latch antigo) e o ciclo reinicia sem caixa
+    // fisica -> FALHA 4 de novo. Mesma condicao do CLEAR do latch de falha (reset + E-Stop).
+        IF #s_rReset.Q AND #i_EStop THEN
+            #o_ReleaseM1 := TRUE;
+        END_IF;
+    END_REGION
+
     REGION Timeout de passo
     // Re-arma o timer na troca de passo (zera a temporizacao) e so conta em passos de
     // movimento. Estouro -> SET de falha com o codigo do passo (1/2/3/5).
@@ -311,11 +367,10 @@ BEGIN
                 #s_Fault := TRUE;
                 // Mapa de codigo de timeout por passo: 1,6,8,14->1; 2,4,10,12->2; 7,15->3; 11->5
                 CASE #s_State OF
-                    1, 6, 8, 14 : #s_FaultCode := 1;   // timeout X
-                    2, 4, 10, 12 : #s_FaultCode := 2;   // timeout Z
-                    7, 15 : #s_FaultCode := 3;          // timeout rotacao
-                    11 : #s_FaultCode := 5;             // caixa nao liberada
-                    ELSE #s_FaultCode := 1;             // fallback seguro
+                    0, 1, 6, 8, 14 : #s_FaultCode := 1;   // timeout X / homing
+                    2, 4, 10, 12 : #s_FaultCode := 2;     // timeout Z
+                    7, 15 : #s_FaultCode := 3;            // timeout rotacao
+                    ELSE #s_FaultCode := 1;               // fallback seguro (codigo 5 aposentado)
                 END_CASE;
             END_IF;
             #s_State := 99;
@@ -335,6 +390,8 @@ BEGIN
         i_SafeState := #i_SafeState);
         #s_RotCCW(i_Trig := #s_trigCCW, i_Dir := FALSE, i_Rotating := #io_Station.Sts.Rotating,
         i_SafeState := #i_SafeState);
+        #s_RotHome(i_Trig := #s_trigHome, i_AtHome := #io_Station.Sts.RotHome,
+        i_Rotating := #io_Station.Sts.Rotating, i_SafeState := #i_SafeState, i_MaxSteps := 4);
     END_REGION
 
     REGION Espelha status
@@ -348,7 +405,9 @@ BEGIN
         #io_Station.Sts.Fault := #s_Fault;
         #io_Station.Sts.FaultCode := #s_FaultCode;
         #o_RotCW := #s_RotCW.o_PulseCW;
-        #o_RotCCW := #s_RotCCW.o_PulseCCW;
+        // OR com o homing rotacional: o homing roda no estado 0 e o passo 15 e outro estado
+        // -> nunca coexistem; mantem exclusao mutua com o_RotCW (ambos sao CCW).
+        #o_RotCCW := #s_RotCCW.o_PulseCCW OR #s_RotHome.o_PulseCCW;
         #o_Fault := #s_Fault;
         #o_FaultCode := #s_FaultCode;
     END_REGION

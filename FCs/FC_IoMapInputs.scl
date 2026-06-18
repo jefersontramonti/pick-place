@@ -17,6 +17,7 @@ VERSION : 0.1
         i_Reset : Bool;   // %I0.4 — cru (NA, pulso; borda fica no FB_MachineMode)
         i_SensorBox : Bool;   // %I0.5 — sensor da caixa na M1 (NA)
         i_Rotating : Bool;   // %I1.0 — feedback de rotação
+        i_RotHome : Bool;   // %I1.3 — HOME de rotacao (braco na casa, virado p/ M1)
         i_ItemDetected : Bool;   // %I1.1 — caixa na ventosa
         i_Xpos : Real;   // %ID30 — posição X (V)
         i_Zpos : Real;   // %ID34 — posição Z (V)
@@ -39,6 +40,7 @@ BEGIN
     REGION Feedbacks
     // Espelhos dos sensores de feedback no StationData.Sts
         #io_Station.Sts.Rotating := #i_Rotating;
+        #io_Station.Sts.RotHome := #i_RotHome;
         #io_Station.Sts.ItemDetected := #i_ItemDetected;
         #io_Station.Sts.SensorBox := #i_SensorBox;
     END_REGION

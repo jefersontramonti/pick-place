@@ -292,3 +292,82 @@
   vs (ii) segurar.
 - **Normativo:** E-Stop sobre eixos/rotação/esteiras com risco a pessoas exigiria F-CPU/PROFIsafe
   (lógica atual é standard fail-safe). Live-zero do AI (fio rompido em 0–10 V) indetectável.
+
+## Sessão 2026-06-17 — comissionamento no PLCSIM (ciclo completo OK) + correções
+
+### Blocos modificados (todos validados no MCP)
+- `FB_AxisPos` — **A-1 (ALTO):** estado seguro agora congela na **posição atual** (`o_SetPointCmd
+  := i_PV`), não no último destino. Antes o eixo continuava percorrendo ao alvo durante a
+  falha/E-Stop (causou o robô descer na caixa).
+- `FB_PickPlaceSeq` — 4 mudanças: (1) **estado 2** FALHA 4 só dispara com Z **de fato** no
+  `Z_pickLimit` (`+ ABS(PV-Z_pickLimit)<=PosTol`) — antes o `InPos` residual de `Z_up` dava falso
+  FALHA 4 no 1º scan; (2) **estado 11 (depósito)** é posicional (removida a espera por
+  `NOT ItemDetected`, que travava — a peça fica sob o sensor); (3) **IDLE/homing**: em RODANDO
+  o robô **referencia** (sobe Z → X home) antes de novo ciclo — recupera de falha fora de casa
+  (M-3/"problema 2"); (4) **estado 1** alinhado ao padrão `InPos + PV-check` (reviewer). FaultCode
+  5 **aposentado**.
+- `FB_ClockGen` — `LREAL_TO_TIME`→`DINT_TO_TIME(LREAL_TO_DINT())` (TIA não tem LREAL_TO_TIME).
+- `typeStation` — legenda do FaultCode (5 aposentado).
+
+### Decisões de arquitetura
+- **Estado seguro do eixo = congelar no PV** (segura onde está), não em 0 V (movimento) nem no
+  destino (movimento). A máscara do `FC_IoMapOutputs` continua **não** mascarando o SP analógico —
+  a segurança do eixo vive no `FB_AxisPos`.
+- **IDLE é estado de homing**: em RODANDO o robô vai para casa (Z up → X home) antes de aceitar
+  ciclo. Ocorre no **START** (em PARADO/safe os eixos congelam). Comando analógico à posição home
+  (sem MC_*/referência).
+- **Polaridade dos sensores** (`Sensor_caixa`, `Item Detected`): resolvida **no FACTORY I/O** (o
+  `FC_IoMapInputs` segue cópia crua — TRUE = detectado).
+
+### Bugs/achados (comissionamento + re-revisão dos agentes)
+- **Falso FALHA 4** (estado 2, `InPos` genérico) e **deadlock no depósito** (estado 11,
+  `NOT ItemDetected`) — corrigidos. Reviewer achou o **mesmo padrão "InPos genérico" no estado 1**
+  (corrigido). Safety achou **A-1 (ALTO)** — corrigido — e recomendou **homing no reset** (feito
+  via IDLE/homing). **C-1 (normativo):** parada segura dos eixos exigiria F-CPU/STO se houver
+  acesso de pessoas — **decisão da análise de risco do usuário (pendente)**.
+
+### Calibração validada no PLCSIM (§9.2)
+- `Item Detected` aciona em **Z≈5.8**; caixa em **6.7**; `Z_pickLimit = 8.0` (limite só p/ "sem
+  caixa"); **`Z_place = 6.5`** (caixa pousa na M2 com o robô em ~6.59; 6.8 era fundo demais →
+  timeout); `M1StopDelay` reduzido (1,2 s era grande demais → caixa passava direto); `ConvSpeed`
+  baixada (rápida demais → sensor não amostra: janela < scan do OB1). **Ciclo
+  Pick→gira→deposita→retorna rodou completo e repetido.**
+
+### Próximos passos
+- **Testar no PLCSIM** as 4 correções: recuperação por homing (provocar falha no meio do ciclo →
+  reset → start → robô sobe Z, vai pra home e retoma) e confirmar que o ciclo normal segue OK.
+- **M-1:** confirmar que `Z_pickLimit` é alcançável dentro de `PosTol`. **C-1:** decisão de risco
+  (F-CPU/STO). **M-2:** dwell de despressurização (opcional). Recompilar tudo no TIA.
+
+## Sessão 2026-06-18 — recuperação pós-falha (release M1 + referenciamento da rotação)
+
+### Blocos criados/modificados (todos validados no MCP)
+- `FB_PickPlaceSeq` — **F1:** pulsa `o_ReleaseM1` no reset deliberado (`s_rReset.Q AND i_EStop`)
+  → limpa o box-latch da M1 (senão a esteira fica travada após a falha e o ciclo reinicia sem
+  caixa → FALHA 4). **F2:** estado 0 referencia a rotação (chama `s_RotHome` após Z up + X home);
+  passo 15 confirma `RotHome`; `+VAR s_RotHome/s_trigHome`; `o_RotCCW := s_RotCCW.o_PulseCCW OR
+  s_RotHome.o_PulseCCW`. Interface externa inalterada.
+- **`FB_RotateToHome` (NOVO)** — primitiva: gira CCW até `i_AtHome` (sensor HOME), parada por
+  sensor (não contagem), `i_MaxSteps`=4 anti-laço → `o_Fault`; "já em casa" → `o_Done` sem pulsar.
+- `typeStation` — `+Sts.RotHome`. `FC_IoMapInputs` — `+i_RotHome` (cópia crua). `OB_Main` —
+  `i_RotHome := "Inductive Sensor 0"`. `tags.md` — `%I1.3` (§2/§6).
+
+### Decisões / I/O
+- **Novo sensor de HOME de rotação:** `"Inductive Sensor 0"` = **`%I1.3`** (indutivo NA → TRUE =
+  braço na casa/M1). Referência absoluta que faltava (rotação é por pulso). Feito via **pipeline
+  completo** (architect→developer→reviewer→safety→tag-io).
+- Passo 7 (CW p/ M2) segue por **contagem** (`FB_Rotate180`) — não há sensor no lado M2.
+
+### Achados dos agentes (não-bloqueantes)
+- Reviewer 0 CRÍTICO; 2 ALTO de robustez/latência a confirmar no PLCSIM (o_Done não consumido — a
+  sequência usa `Sts.RotHome`; janela de 1 scan). Safety **APROVADO** (6 requisitos conformes).
+- MÉDIO: estado 0 lê `s_RotHome.o_Fault` 1 scan atrasado → sempre FALHA segura; FaultCode pode ser
+  1 (timeout) vs 3 (rotação) por modo de falha — ambos coerentes (código 1 cobre "homing").
+  Deixado como está (fail-safe; item de verificação §9.2).
+
+### Próximos passos
+- **TIA:** criar a tag `%I1.3` "Inductive Sensor 0"; recompilar (`typeStation`/`StationData`
+  recompilam; `FB_PickPlaceSeq_DB` regenera c/ a multi-instância `s_RotHome`; `FB_RotateToHome`
+  novo). **Testar no PLCSIM:** recuperação 90°/180° (reset→start→gira CCW até HOME→retoma); sensor
+  forçado FALSE → FALHA sem laço; §9.2 (polaridade NA, janela do sensor vs detente, FaultCode 1×3).
+- Pendências herdadas: C-1 (F-CPU/STO, decisão de risco), M-1, M-2.

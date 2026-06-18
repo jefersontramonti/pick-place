@@ -49,6 +49,7 @@ BEGIN
         i_Reset := "Reset Button 0",
         i_SensorBox := "Sensor_caixa",
         i_Rotating := "Two-Axis Pick & Place 0 (Rotating)",
+        i_RotHome := "Inductive Sensor 0",
         i_ItemDetected := "Two-Axis Pick & Place 0 (Item Detected)",
         i_Xpos := "Two-Axis Pick & Place 0 X Position (V)",
         i_Zpos := "Two-Axis Pick & Place 0 Z Position (V)",

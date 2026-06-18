@@ -8,8 +8,10 @@ Guia para o Claude Code trabalhar neste projeto.
 desenvolvido no **TIA Portal**, simulado em **FACTORY I/O + S7-PLCSIM** e editado no
 WebStorm (`.idea/`).
 
-> **Estado atual: ✅ lógica SCL COMPLETA (13/13 blocos — validados, revisados e auditados em
-> safety). Resta integração no TIA Portal + validação no PLCSIM.** O escopo do processo
+> **Estado atual: ✅ lógica COMPLETA (13/13) + ciclo Pick&Place rodando no PLCSIM.** Em
+> comissionamento corrigiram-se bugs de timing/estado seguro (o estado seguro do eixo agora
+> congela no PV; IDLE faz homing; falso FALHA 4 e deadlock de depósito sanados). Resta testar o
+> homing no PLCSIM, a decisão normativa C-1 (F-CPU/STO) e recompilar no TIA. O escopo do processo
 > está em **`DOCS/ESCOPO_PickPlace.md`** e a arquitetura em **`DOCS/ARQUITETURA_PickPlace.md`**:
 > uma estação **Two-Axis Pick & Place** com duas esteiras (**M1** entrada, **M2** saída),
 > comandos **Liga/Desliga/Emergência/Reset**, **torre de sinalização** e o ciclo **pega → gira
@@ -52,8 +54,8 @@ WebStorm (`.idea/`).
 ```
 aula01/
 ├─ OBs/          OB_Main.scl  (OB1 orquestrador — chama tudo na ordem §4)
-├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_MachineMode,
-│                FB_PickPlaceSeq
+├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180, FB_RotateToHome, FB_Conveyor,
+│                FB_MachineMode, FB_PickPlaceSeq
 ├─ FCs/          FC_ScaleVolt, FC_IoMapInputs, FC_IoMapOutputs
 ├─ DBs/          StationData (Station : typeStation)
 ├─ UDTs/         typeAxis, typeStation
@@ -82,7 +84,9 @@ surgirem) `FCs/`. **Um bloco por arquivo `.scl`.**
 - **E-Stop deste projeto: `EStop` = `%I0.3` (lógica NF)** — atenção: difere do `%I0.0` do
   subsistema antigo. `Stop` (`%I0.7`) também é NF; `Start`/`Reset`/`Sensor_caixa` são NA.
 - **Entradas:** Reset `%I0.4`, Sensor_caixa `%I0.5`, Start `%I0.6`, feedbacks do robô
-  `%I1.0–%I1.2`; posições X `%ID30` / Z `%ID34` (Real, V).
+  `%I1.0–%I1.2`; **HOME de rotação `Inductive Sensor 0` = `%I1.3`** (indutivo NA → TRUE = braço
+  na casa/M1; referência absoluta p/ o referenciamento da rotação no `FB_RotateToHome`); posições
+  X `%ID30` / Z `%ID34` (Real, V).
 - **Saídas:** luzes (botões/torre) `%Q0.3–%Q1.0`; `Grab`/`Rotate CW-CCW`/`Gripper CW-CCW`
   `%Q1.1–%Q1.5`; **M1 `%QD30`**, **M2 `%QD34`** (velocidade, Real), X SP `%QD38`,
   Z SP `%QD42`.
@@ -116,6 +120,9 @@ Outros documentos de apoio em `DOCS/`:
 - **`AGENT_ARCHITECTURE.md`** — design da arquitetura de subagentes/comandos/skills.
 - **`tags.md`** — **mapa de I/O atual** (Pick & Place): tags físicas, polaridades, mapa de
   endereços, sinalização e setpoints iniciais. Sincronizar com a I/O via `/io-sync`.
+- **`LEVANTAMENTO_ERROS.md`** — **referência consolidada dos erros** encontrados/corrigidos no
+  comissionamento (TIA + PLCSIM), pós-entrega 13/13: compile, bugs de lógica, achados dos
+  agentes, calibração §9.2 e pendências (C-1 normativo, M-1, M-2). Atualizar a cada novo achado.
 
 ### Documentos vivos (manter sincronizados)
 

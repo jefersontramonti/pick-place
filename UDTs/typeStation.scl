@@ -39,12 +39,13 @@ VERSION : 0.1
             BoxAtPick : Bool;         // OK da esteira (caixa posicionada)
             ItemDetected : Bool;         // %I1.1 espelhado
             Rotating : Bool;         // %I1.0 espelhado
+            RotHome : Bool;         // %I1.3 espelhado — braço na casa (virado p/ M1)
             SensorBox : Bool;         // %I0.5 espelhado — feixe interrompido (caixa presente na M1)
             VacuumOn : Bool;         // estado do Grab
             M1Speed : LReal;        // velocidade aplicada a M1 (V)
             M2Speed : LReal;        // velocidade aplicada a M2 (V)
             Fault : Bool;         // falha ativa (travada)
-            FaultCode : Int;          // 0=ok 1=timeout X 2=timeout Z 3=timeout rotacao 4=Z limite s/ItemDet 5=caixa nao liberada
+            FaultCode : Int;          // 0=ok 1=timeout X/homing 2=timeout Z 3=timeout rotacao 4=Z no limite sem ItemDet (sem caixa); 5=reservado (aposentado)
             CycleCount : DInt;         // contador de ciclos concluidos
         END_STRUCT;
 

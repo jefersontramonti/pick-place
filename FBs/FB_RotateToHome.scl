@@ -1,0 +1,111 @@
+FUNCTION_BLOCK "FB_RotateToHome"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+// FB_RotateToHome: primitiva de REFERENCIAMENTO da rotacao. Gira o braco em CCW
+// (sentido da casa, virado p/ M1) dando pulsos de 90 graus ate o sensor HOME (i_AtHome)
+// acusar o braco na casa — criterio de parada e o SENSOR (referencia absoluta), NAO
+// contagem. Reusa o handshake por NIVEL do FB_Rotate180 (pulso -> espera Rotating subir
+// -> espera cair = 90 concluido), gated por estado (sem F_TRIG global). i_MaxSteps e
+// guarda anti-laco-infinito: se estourar sem achar HOME (sensor preso/quebrado) -> o_Fault.
+// Caso "ja em casa" sinaliza o_Done sem pulsar (nao congela). Estado seguro (i_SafeState)
+// tem prioridade: aborta -> IDLE com pulso OFF no mesmo scan. Interface ESCALAR;
+// instanciada dentro do FB_PickPlaceSeq (NAO chamar de OB diretamente).
+    VAR_INPUT
+        i_Trig : Bool;   // dispara; manter TRUE ate o_Done (handshake)
+        i_AtHome : Bool;   // Sts.RotHome (%I1.3 espelhado) — referencia absoluta
+        i_Rotating : Bool;   // %I1.0 espelhado — braco em rotacao (feedback)
+        i_SafeState : Bool;   // TRUE = aborta -> IDLE, pulso OFF no mesmo scan (prioridade maxima)
+        i_MaxSteps : Int;   // teto de pulsos de 90 (anti-laco-infinito); ex.: 4
+    END_VAR
+
+    VAR_OUTPUT
+        o_PulseCCW : Bool;   // -> Rotate CCW (%Q1.4)
+        o_Busy : Bool;   // TRUE enquanto referencia
+        o_Done : Bool;   // segura ao detectar AtHome (handshake)
+        o_Fault : Bool;   // estourou i_MaxSteps sem achar HOME (sensor preso) -> falha
+    END_VAR
+
+    VAR
+        s_State : Int := 0;   // 0 IDLE, 1 PULSE, 2 MOVING, 3 DONE, 4 FAULT
+        s_Count : Int := 0;   // pulsos de 90 emitidos (anti-laco-infinito)
+        s_trig : R_TRIG;     // borda de subida do trigger
+    END_VAR
+
+BEGIN
+
+    REGION Bordas
+    // Borda — chamar todo scan
+        #s_trig(CLK := #i_Trig);
+    END_REGION
+
+    REGION Estado seguro
+    // Estado seguro: aborta a qualquer momento (prioridade sobre o CASE) — nao gira no safe
+        IF #i_SafeState THEN
+            #s_State := 0;
+        END_IF;
+    END_REGION
+
+    REGION Maquina de estados
+        CASE #s_State OF
+            0 : // IDLE — tudo desligado; aguarda trigger
+                #o_PulseCCW := FALSE;
+                #o_Busy := FALSE;
+                #o_Done := FALSE;
+                #o_Fault := FALSE;
+                IF #i_AtHome THEN
+                // ja em casa -> nao pulsa, sinaliza concluido (nao congela)
+                    #o_Done := TRUE;
+                ELSIF #s_trig.Q AND NOT #i_SafeState AND NOT #i_Rotating THEN
+                // dispara com o braco assentado (NOT Rotating) — guarda contra residual
+                    #s_Count := 0;
+                    #s_State := 1;
+                END_IF;
+
+            1 : // PULSE — emite o pulso CCW (borda de subida); segura ate girar
+                #o_PulseCCW := TRUE;
+                #o_Busy := TRUE;
+                IF #i_Rotating THEN
+                // modelo registrou o pulso e comecou a girar
+                    #s_Count := #s_Count + 1;
+                    #s_State := 2;
+                END_IF;
+
+            2 : // MOVING — pulso solto; espera a queda de Rotating (90 concluido)
+            // Deteccao por NIVEL gated por estado: so chega aqui APOS o state 1 ver
+            // i_Rotating=TRUE, entao NOT i_Rotating = a queda do movimento atual.
+                #o_PulseCCW := FALSE;
+                #o_Busy := TRUE;
+                IF NOT #i_Rotating THEN
+                // 90 concluido — criterio de parada e o SENSOR (nao a contagem)
+                    IF #i_AtHome THEN
+                        #s_State := 3;                       // chegou na casa
+                    ELSIF #s_Count >= #i_MaxSteps THEN
+                        #s_State := 4;                       // estourou o teto sem achar HOME
+                    ELSE
+                        #s_State := 1;                       // proximo pulso (novo flanco)
+                    END_IF;
+                END_IF;
+
+            3 : // DONE — sinaliza conclusao; aguarda o consumidor soltar i_Trig (handshake)
+                #o_PulseCCW := FALSE;
+                #o_Busy := FALSE;
+                #o_Done := TRUE;
+                IF NOT #i_Trig THEN
+                    #s_State := 0;
+                END_IF;
+
+            4 : // FAULT — sensor nao achado dentro de i_MaxSteps; sinaliza falha
+                #o_PulseCCW := FALSE;
+                #o_Busy := FALSE;
+                #o_Fault := TRUE;
+                IF NOT #i_Trig THEN
+                    #s_State := 0;
+                END_IF;
+
+            ELSE
+                #s_State := 0;   // estado invalido -> seguro (IDLE)
+        END_CASE;
+    END_REGION
+
+END_FUNCTION_BLOCK
