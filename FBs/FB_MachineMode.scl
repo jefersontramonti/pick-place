@@ -107,14 +107,15 @@ BEGIN
                 #o_Red := #i_ClkFast;
                 #o_StartLite := FALSE;
                 #o_StopLite := FALSE;
-            3 : // FALHA — vermelho FIXO (distingue de emergencia/parado)
+            3 : // FALHA — vermelho pisca LENTO (distingue da emergencia, que pisca rapido).
+                // Como FALHA = "PARADO + indicacao" (escopo §3), a luz Desliga segue acesa.
                 #o_Run := FALSE;
                 #o_SafeState := TRUE;
                 #o_Green := FALSE;
                 #o_Yellow := FALSE;
-                #o_Red := TRUE;
+                #o_Red := #i_ClkSlow;
                 #o_StartLite := FALSE;
-                #o_StopLite := FALSE;
+                #o_StopLite := TRUE;
             ELSE  // 0 PARADO — amarelo piscando lento, luz Desliga acesa
                 #o_Run := FALSE;
                 #o_SafeState := TRUE;

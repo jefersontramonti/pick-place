@@ -13,7 +13,9 @@
 | B. Bugs de lógica (achados no PLCSIM) | 2 | falso FALHA 4 + deadlock no depósito |
 | C. Achados da re-revisão dos agentes | 6 | 1 ALTO (estado seguro dos eixos), 1 normativo |
 | D. Calibração (§9.2) | 4 | velocidades/atrasos/setpoints/polaridade |
-| **Total de itens** | **14** | + pendências (C-1, M-1, M-2) |
+| F. Recuperação pós-falha | 2 | release M1 no reset + referenciamento da rotação (HOME `%I1.3`) |
+| G. Sinalização (torre) | 3 | clock zerado → fallback; FALHA fixa → pisca lento; init das ondas |
+| **Total de itens** | **19** | + pendências (C-1, M-1, M-2) |
 
 **Lição central:** o **linter MCP e a revisão estática não pegam** bugs de timing, geometria e
 estado seguro — **o PLCSIM (e o compilador do TIA) são a validação definitiva**.
@@ -136,6 +138,42 @@ moderada** para não perder o `Item Detected` por amostragem.
 - `Cfg.ConvSpeed` = **6.5**, `Cfg.M1StopDelay` = **T#50ms** (recalibráveis); `Cfg.Z_place` = **6.5**.
 - **Velocidade do robô** = propriedade do componente FACTORY I/O (o SCL só comanda posição); pelo
   PLC, baixar `Cfg.PosDebounce` (200 ms) corta dwell — mantendo a descida da pega moderada.
+
+---
+
+## G. Sinalização da torre (3ª rodada de comissionamento)
+
+### G1 — Torre vermelha não acendia na EMERGÊNCIA (mas acendia fixa na FALHA)
+- **Sintoma:** ao apertar a emergência a torre vermelha **não acendia**; numa falha a vermelha
+  **acendia, porém fixa** (não piscava).
+- **Causa:** `FB_MachineMode` usa `o_Red := i_ClkFast` na emergência (depende do clock) e usava
+  `o_Red := TRUE` na falha (constante). O `i_ClkFast` estava **travado em FALSE** porque
+  `Cfg.ClkFastHz` valia **0.0** no DB real — os start values dependiam só da **herança do UDT**,
+  que **não repropaga** quando o DB é regenerado/reinicializado (e o `typeStation` mudou várias
+  vezes). Clock parado → emergência apagada; falha (TRUE) acendia → assinatura exata do problema.
+- **Correção:** (1) `FB_ClockGen` ganhou **fallback** — `Hz ≤ 0` usa 1 Hz/3 Hz padrão em vez de
+  apagar; (2) start values **explícitos** em `StationData` (`ClkSlowHz:=1.0`, `ClkFastHz:=3.0`).
+- **Status:** ✅ validado no MCP. **Ação no TIA:** reinicializar o `StationData` (ou escrever os
+  Hz online) — só recompilar mantém o valor de carga 0.0.
+
+### G2 — FALHA ficava em vermelho fixo (não piscava) → pisca lento
+- **Sintoma/decisão:** o usuário queria que a falha **piscasse** e fosse perceptível.
+- **Correção:** `FB_MachineMode` estado 3 → `o_Red := i_ClkSlow` (pisca lento, ~1 Hz) e
+  `o_StopLite := TRUE` (FALHA = "PARADO + indicação", §3). EMERGÊNCIA segue pisca rápido (~3 Hz).
+  Distinção emergência×falha pela **cadência** do mesmo LED vermelho. Formalizado no escopo §3.1
+  e no `tags.md §7` (FALHA não tinha linha nas tabelas).
+- **Status:** ✅ validado no MCP.
+
+### G3 — Onda do clock podia partir em FALSE (torre muda no 1º instante)
+- **Achado (safety-auditor):** `s_SlowState`/`s_FastState` começavam em FALSE → se a emergência
+  ocorresse no instante de partida, antes do 1º toggle, a torre ficava apagada.
+- **Correção:** inicializar `s_SlowState := TRUE` / `s_FastState := TRUE` (acende já no 1º scan).
+- **Status:** ✅ validado no MCP.
+
+> **Auditoria de TODAS as lâmpadas (scl-reviewer + safety-auditor):** 0 CRÍTICO / 0 ALTO. As 6
+> luzes corretas nos 4 estados (sem lâmpada indefinida, cores exclusivas, luz de Reset conforme
+> §3.2). Riscos residuais aceitos: pisca tem ~50% OFF (escopo exige pisca); lâmpada queimada/canal
+> travado indetectável em lógica standard; C-1 (E-Stop F-CPU) é a pendência normativa real.
 
 ---
 

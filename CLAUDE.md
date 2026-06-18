@@ -211,19 +211,19 @@ referência de uso em `DOCS/COMANDOS.md`.
   `CLAUDE.md` → `DOCS/PROJECT_STATE.md` → `.claude/handoff.md` (se existir). **Mantenha esses
   três em dia** — é o que torna os agentes autônomos *e* corretos (feito nesta sessão).
 - **Menor privilégio:** cada um tem só as ferramentas do seu papel (read-only vs. write).
-- **Modelo por custo/complexidade:** opus (arquitetura/revisão/safety), sonnet (execução),
-  haiku (mecânico).
+- **Modelo por custo/complexidade:** opus (arquitetura/revisão/safety + execução SCL e motion),
+  sonnet (testes/simulação), haiku (mecânico/I-O).
 
 ### Subagentes (`.claude/agents/`)
 | Agente | Modelo | Quando usar | Capacidade |
 |---|---|---|---|
 | **scl-architect** | opus | **antes** de escrever código novo | Projeta blocos/FSM/interfaces — entrega **plano**, não implementa (read-only + MCP introspecção) |
-| **scl-developer** | sonnet | implementar/editar blocos do plano | Escreve SCL idiomático e **valida no MCP** (Write/Edit/validate/generate) |
+| **scl-developer** | opus | implementar/editar blocos do plano | Escreve SCL idiomático e **valida no MCP** (Write/Edit/validate/generate) |
 | **scl-reviewer** | opus | após implementar, antes de "concluído" | Caça bugs de ciclo de scan, tipos, CASE, IEC/Siemens (read-only) |
 | **safety-auditor** | opus | qualquer E-Stop/intertravamento/falha/estado seguro | Audita fail-safe standard; aponta o que exigiria F-CPU (read-only) |
 | **tag-io-documenter** | haiku | criar/alterar E/S | Mantém `DOCS/tags.md` coerente com símbolos↔endereços (MCP I/O) |
 | **test-sim-engineer** | sonnet | projetar testes/cenários | Casos por estado/transição p/ PLCSIM, critérios de aceitação |
-| **motion-specialist** | sonnet | **só** eixos com Technology Objects/`MC_*` | **Standby neste projeto** — os eixos X/Z são **analógicos** (`FB_AxisPos`), não TO/MC_* |
+| **motion-specialist** | opus | **só** eixos com Technology Objects/`MC_*` | **Standby neste projeto** — os eixos X/Z são **analógicos** (`FB_AxisPos`), não TO/MC_* |
 
 ### Comandos (`.claude/commands/` — você digita; orquestram o time)
 | Comando | Faz |

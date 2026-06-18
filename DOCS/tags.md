@@ -175,6 +175,7 @@ endereçamento `%Q`/`%QD`. Garantia fail-safe mesmo com falha isolada de um FB i
 | **RODANDO** | **fixo** | — | — | aceso | — | — |
 | **PARADO** (Stop) | — | **pisca lento** (~1 Hz) | — | — | aceso | pisca se há falha |
 | **EMERGÊNCIA** | — | — | **pisca rápido** (~3 Hz) | — | — | pisca se há falha |
+| **FALHA** | — | — | **pisca lento** (~1 Hz) | — | aceso | **pisca** |
 
 > Luz de Reset (`%Q0.3`, azul IEC): **pisca** enquanto houver **falha/emergência latcheada a
 > rearmar**; apaga após reset bem-sucedido. Pisca gerado no PLC (byte de clock ou TON/TOF):

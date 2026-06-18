@@ -21,8 +21,8 @@ VERSION : 0.1
     VAR
         s_tSlow : TON_TIME;   // temporizador do meio-período lento
         s_tFast : TON_TIME;   // temporizador do meio-período rápido
-        s_SlowState : Bool;       // nível atual da onda lenta (alternado)
-        s_FastState : Bool;       // nível atual da onda rápida (alternado)
+        s_SlowState : Bool := TRUE;   // nível atual da onda lenta (alternado); parte em TRUE p/ acender no 1o scan
+        s_FastState : Bool := TRUE;   // nível atual da onda rápida (alternado); idem — blinda "torre apagada na partida"
     END_VAR
 
     VAR_TEMP
@@ -34,46 +34,42 @@ BEGIN
 
     REGION Pisca lento
     // Gera onda quadrada ~50% duty a partir de i_SlowHz
+        // meio-período (ms) = 1000 / (2 * Hz); período total = 1/Hz.
+        // FALLBACK fail-safe: Hz <= 0 (config ausente/zerada) NAO apaga a sinalizacao —
+        // usa 1 Hz padrao. Perder o pisca da torre por config 0 e anti-fail-safe (a
+        // emergencia/falha ficaria sem indicacao visivel). Evita tambem divisao por zero.
         IF #i_SlowHz > 0.0 THEN
-        // meio-período (ms) = 1000 / (2 * Hz); período total = 1/Hz
             #t_halfSlow := 1000.0 / (2.0 * #i_SlowHz);
-            // TON auto-rearmado: Q pulsa 1 scan a cada meio-período
-            #s_tSlow(IN := NOT #s_tSlow.Q,
-            PT := DINT_TO_TIME(LREAL_TO_DINT(#t_halfSlow)));
-            // a cada pulso de Q, inverte o nível -> onda quadrada
-            IF #s_tSlow.Q THEN
-                #s_SlowState := NOT #s_SlowState;
-            END_IF;
-            #o_Slow := #s_SlowState;
         ELSE
-        // frequência inválida (<= 0): saída apagada, sem divisão por zero
-            #s_tSlow(IN := FALSE,
-            PT := T#0ms);
-            #s_SlowState := FALSE;
-            #o_Slow := FALSE;
+            #t_halfSlow := 500.0;   // 1 Hz (meio-periodo 500 ms)
         END_IF;
+        // TON auto-rearmado: Q pulsa 1 scan a cada meio-período
+        #s_tSlow(IN := NOT #s_tSlow.Q,
+        PT := DINT_TO_TIME(LREAL_TO_DINT(#t_halfSlow)));
+        // a cada pulso de Q, inverte o nível -> onda quadrada
+        IF #s_tSlow.Q THEN
+            #s_SlowState := NOT #s_SlowState;
+        END_IF;
+        #o_Slow := #s_SlowState;
     END_REGION
 
     REGION Pisca rapido
     // Gera onda quadrada ~50% duty a partir de i_FastHz
+        // meio-período (ms) = 1000 / (2 * Hz); período total = 1/Hz.
+        // FALLBACK fail-safe: Hz <= 0 -> usa 3 Hz padrao (ver justificativa no pisca lento).
         IF #i_FastHz > 0.0 THEN
-        // meio-período (ms) = 1000 / (2 * Hz); período total = 1/Hz
             #t_halfFast := 1000.0 / (2.0 * #i_FastHz);
-            // TON auto-rearmado: Q pulsa 1 scan a cada meio-período
-            #s_tFast(IN := NOT #s_tFast.Q,
-            PT := DINT_TO_TIME(LREAL_TO_DINT(#t_halfFast)));
-            // a cada pulso de Q, inverte o nível -> onda quadrada
-            IF #s_tFast.Q THEN
-                #s_FastState := NOT #s_FastState;
-            END_IF;
-            #o_Fast := #s_FastState;
         ELSE
-        // frequência inválida (<= 0): saída apagada, sem divisão por zero
-            #s_tFast(IN := FALSE,
-            PT := T#0ms);
-            #s_FastState := FALSE;
-            #o_Fast := FALSE;
+            #t_halfFast := 166.0;   // ~3 Hz (meio-periodo ~166 ms)
         END_IF;
+        // TON auto-rearmado: Q pulsa 1 scan a cada meio-período
+        #s_tFast(IN := NOT #s_tFast.Q,
+        PT := DINT_TO_TIME(LREAL_TO_DINT(#t_halfFast)));
+        // a cada pulso de Q, inverte o nível -> onda quadrada
+        IF #s_tFast.Q THEN
+            #s_FastState := NOT #s_FastState;
+        END_IF;
+        #o_Fast := #s_FastState;
     END_REGION
 
 END_FUNCTION_BLOCK

@@ -42,7 +42,7 @@
   `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`. **✅ TODOS os 13 blocos
   prontos** — lógica completa; resta só a integração no TIA + validação no PLCSIM.
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
-  PostToolUse validate + **PreCompact** memória). Permissões **autônomo mas limitado**
+  PostToolUse validate + **SessionStart(compact|resume)** lembrete de memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
   `DOCS/GUIA_AGENTES.md` (local) e seção "Equipe de agentes" do `CLAUDE.md`.
   `motion-specialist`/skill `motion-control` em **standby** (posicionamento analógico).
@@ -166,8 +166,8 @@
 - `DOCS/ARQUITETURA_PickPlace.md` — NOVO. Blueprint do `scl-architect` (13 blocos, interfaces,
   FSMs, ordem de build §8).
 - `DOCS/GUIA_AGENTES.md` — NOVO (local/gitignored). Guia didático do sistema de agentes (vídeo).
-- `.claude/hooks/memory-update-reminder.ps1` + `settings.json` — NOVO hook **PreCompact**
-  (lembra de persistir memória antes da compactação). Permissões "autônomo mas limitado".
+- `.claude/hooks/memory-update-reminder.ps1` + `settings.json` — NOVO hook **SessionStart(compact|resume)**
+  (lembra de persistir memória ao retomar/compactar — PreCompact não injeta contexto). Permissões "autônomo mas limitado".
 - Memória persistente reescrita (projeto = Pick & Place) + nova feedback `keep-context-in-sync`.
 - `CLAUDE.md` — reescrito para o escopo Pick & Place; adicionada seção "Equipe de agentes".
 - `DOCS/ESCOPO_PickPlace.md` — NOVO. Especificação completa: processo, mapa de I/O,
@@ -371,3 +371,59 @@
   novo). **Testar no PLCSIM:** recuperação 90°/180° (reset→start→gira CCW até HOME→retoma); sensor
   forçado FALSE → FALHA sem laço; §9.2 (polaridade NA, janela do sensor vs detente, FaultCode 1×3).
 - Pendências herdadas: C-1 (F-CPU/STO, decisão de risco), M-1, M-2.
+
+## Sessão 2026-06-18 (cont. — bug da torre vermelha + auditoria de sinalização)
+
+### Blocos criados/modificados (todos validados no MCP)
+- `FB_MachineMode` — sinalização da FALHA (estado 3): `o_Red := TRUE` (fixo) → `o_Red :=
+  #i_ClkSlow` (vermelho **pisca lento**, distinto da emergência que pisca rápido); `o_StopLite :=
+  FALSE` → `TRUE` (FALHA = "PARADO + indicação", acende a luz Desliga). Sem variável nova.
+- `FB_ClockGen` — **fallback fail-safe**: se `i_SlowHz`/`i_FastHz` ≤ 0, usa 1 Hz / 3 Hz padrão em
+  vez de devolver FALSE (antes apagava o pisca). Removido o ramo `ELSE` que zerava a saída.
+  `s_SlowState`/`s_FastState` ganharam inicializador `:= TRUE` (acendem no 1º scan — blinda
+  "torre apagada na partida"). Sem variável nova.
+- `StationData` (DB) — start values **explícitos** `Station.Cfg.ClkSlowHz := 1.0` e
+  `ClkFastHz := 3.0` na seção `BEGIN` (antes dependiam só da herança do UDT). Sem campo novo no
+  UDT — atribuição a membros já existentes.
+- `DOCS/ESCOPO_PickPlace.md` (§3.1) e `DOCS/tags.md` (§7) — +linha de **FALHA** (vermelho pisca
+  lento + Desliga aceso); documentado o fallback do clock.
+- `CLAUDE.md` (tabela de agentes: developer/motion → **opus**; linha "Modelo por custo") e
+  `PROJECT_STATE.md` (fraseado do hook "PreCompact" → "SessionStart(compact|resume)") —
+  correções de divergências documentais achadas na verificação inicial do projeto.
+
+### Decisões de arquitetura
+- **EMERGÊNCIA × FALHA distinguem-se pela cadência do vermelho** (emergência = ~3 Hz; falha =
+  ~1 Hz), no mesmo LED da torre. Decisão do usuário (havia 3 opções). FALHA não constava nas
+  tabelas de sinalização → **formalizada** no escopo §3.1 e no `tags.md §7`.
+- **Sinalização nunca pode apagar por config 0:** `FB_ClockGen` usa fallback de frequência e
+  parte com a onda em nível alto. Princípio: perder a indicação de emergência por `Cfg.*Hz=0` é
+  anti-fail-safe (registrado também nos comentários do FB e do DB).
+- **Nenhuma mudança de interface nesta sessão** (sem nova VAR, UDT intacto) → **nenhum DB de
+  instância precisa ser regenerado**; só recompilar os `.scl` e reinicializar `StationData`.
+
+### Bugs encontrados e resoluções
+- **Torre vermelha não acendia na emergência, mas acendia (fixa) na falha** → causa raiz:
+  `i_ClkFast` travado em FALSE porque `Cfg.ClkFastHz` estava 0 no DB real (start values
+  dependiam da herança do UDT, que **não repropaga** após reinit do DB; o `typeStation` mudou
+  várias vezes). Emergência usa `o_Red := i_ClkFast` (ficava apagada); falha usava `o_Red :=
+  TRUE` constante (acendia fixa) → assinatura exata do clock parado. **Correção:** fallback no
+  `FB_ClockGen` + start values explícitos no `StationData` + init `TRUE` das ondas.
+- Falha "ficava ligada direta", não piscava → era `o_Red := TRUE` por design (FALHA = fixo).
+  Trocado para pisca lento conforme decisão do usuário.
+
+### Achados da equipe de agentes (auditoria de TODAS as lâmpadas vs escopo)
+- **scl-reviewer + safety-auditor: 0 CRÍTICO / 0 ALTO.** Lógica das 6 luzes correta nos 4
+  estados (sem lâmpada indefinida, cores exclusivas, luz de Reset conforme §3.2, fiação do OB OK).
+- Aplicados: init `TRUE` das ondas (recomendação única do safety-auditor — blinda partida);
+  Desliga aceso na FALHA (BAIXO-1 do reviewer); formalização da FALHA na doc (MÉDIO-1).
+- Riscos residuais aceitos (não-bloqueantes): pisca tem ~50% OFF (escopo exige pisca); lâmpada
+  queimada/canal travado indetectável em lógica standard; distinção emergência×falha só por
+  cadência é sutil; C-1 (E-Stop F-CPU) segue como a pendência normativa real (não é a torre).
+
+### Próximos passos
+- **TIA/PLCSIM:** **reinicializar o DB `StationData`** (ou escrever online `ClkFastHz=3.0`/
+  `ClkSlowHz=1.0`) — sem isso o valor de carga antigo (0.0) persiste mesmo recompilando.
+  Recompilar os 3 `.scl` alterados. **Confirmar:** emergência → vermelho rápido; falha →
+  vermelho lento + Desliga aceso; parado → amarelo lento; Reset pisca quando há algo a rearmar.
+- Pendências herdadas: C-1 (F-CPU/STO, decisão de risco), M-1, M-2; recuperação 90°/180° da
+  rotação no PLCSIM (sessão anterior).
