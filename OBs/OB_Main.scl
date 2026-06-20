@@ -57,11 +57,16 @@ BEGIN
     END_REGION
 
     REGION 2 Clocks de pisca
-    // Gera as ondas quadradas lenta/rapida para a sinalizacao
-        "FB_ClockGen_DB"(i_SlowHz := "StationData".Station.Cfg.ClkSlowHz,
-        i_FastHz := "StationData".Station.Cfg.ClkFastHz,
-        o_Slow => #t_clkSlow,
-        o_Fast => #t_clkFast);
+    // Pisca gerado pelo BYTE DE CLOCK da CPU (bits do sistema, sempre oscilando),
+    // NAO por TON — o FB_ClockGen por TON auto-rearmado nao oscilava no PLCSIM/MHJ.
+    // PRE-REQUISITO (Device config): CPU -> "System and clock memory" -> habilitar
+    // "clock memory byte" com endereco = MB10. Bits independentes de scan/DB/FB:
+    //   %M10.5 = Clock_1Hz   -> pisca lento  (amarelo PARADO / vermelho FALHA)
+    //   %M10.2 = Clock_2.5Hz -> pisca rapido (~3 Hz; vermelho EMERGENCIA)
+    // Se mudar o endereco do byte de clock, ajustar MB aqui (ex.: MB1 -> %M1.5 / %M1.2).
+        #t_clkSlow := %M10.5;
+        #t_clkFast := %M10.2;
+    // (FB_ClockGen e seu DB ficam sem uso — pode manter ou remover no TIA.)
     END_REGION
 
     REGION 3 Modo + sinalizacao + SafeState
