@@ -220,6 +220,32 @@ em 14/14 (só `OB_Main` com falsos-positivos: `%M10.x` intencional, `VAR_TEMP` w
 - **Homing do estado 0:** verificado **robusto** (completa por sensor absoluto `RotHome`, guarda
   `NOT RotHome` sustenta o trigger naturalmente) — não sofre o bug do H1. Sem alteração.
 
+### H4 — M1 perde uma caixa quando duas andam próximas (`FB_Conveyor`) — REVERTIDO
+- **Sintoma original (PLCSIM):** com 2 caixas próximas, ao a 1ª terminar de passar pelo sensor, a
+  2ª para depois do sensor e **não é parada** (passa direto da pega); a M1 só para na caixa seguinte.
+- **Causa:** o box-stop para na **borda de descida** de `i_Sensor` (caixa termina de passar). Uma
+  caixa que para **cobrindo o sensor ou já depois dele** não gera essa borda → não é parada. É um
+  efeito de **espaçamento de caixas na cena** (premissa do design: o sensor fica livre entre caixas).
+- **Tentativas de correção no CÓDIGO — AMBAS REVERTIDAS (causaram regressão):**
+  1. *Remover o cancelamento* (`IF i_Sensor THEN counting:=FALSE`) — não cobria a caixa já passada.
+  2. *Detecção por presença/nível* (`IN := i_Sensor AND NOT s_boxLatch`) — **quebrou o caso comum**:
+     (a) deslocou a parada ~1 caixa a montante → robô pega em `X_pick` na posição errada →
+     **FaultCode 4** → reset; (b) **bug estrutural** — caixa parada sobre o sensor **re-trava sozinha**
+     após o release (anda só durante `M1StopDelay` e para) = "M1 mal dá um pulso" + reset em laço.
+  - **Revisão (scl-reviewer):** confirmou (a)+(b) como CRÍTICOS; regra de ouro: **a posição de parada
+    (e portanto `X_pick`) NÃO pode mudar** — qualquer lógica que mude onde a caixa para força
+    recalibrar toda a pega.
+- **Decisão:** **revertido `FB_Conveyor.scl` para o commit `2c53861`** (borda de descida, validado).
+  O caso de 2 caixas próximas deve ser tratado na **cena FACTORY I/O** (aumentar o espaçamento do
+  emitter para o sensor ficar livre entre caixas), **não no código**. Alternativa de PLC (se um dia
+  necessário): manter a borda de descida e tratar a fila por **contador de bordas pendentes**, sem
+  deslocar a posição de parada. ⚠️ Reverter re-adiciona `s_fSensor`/`s_counting` → **regenerar
+  `FB_Conveyor_M1_DB`/`_M2_DB`** no TIA.
+- **MÉDIO (achado do revisor):** `typeStation.scl` tem `M1StopDelay := T#500ms` como default do UDT,
+  mas o valor validado (D1) é `T#50ms`. Conferir o **valor de carga real** no `StationData` (a
+  herança do UDT não repropaga após regen — mesma armadilha do G1/clock).
+- **Status:** ✅ revertido para a versão funcional. Caixas próximas = ajuste de **cena**, não código.
+
 ---
 
 ## Resultado
