@@ -1,0 +1,52 @@
+// FC_Interlocks: fonte única das guardas de anticolisão (§7 do escopo).
+// FC pura/stateless — combina posição/estado dos eixos em 3 permissões geométricas,
+// reusada pelo FB_PickPlaceSeq e pelo FB_ManualControl (evita divergência auto/manual).
+// NÃO contém E-Stop/estado seguro/gating por RODANDO: isso é responsabilidade do chamador.
+FUNCTION "FC_Interlocks" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
+    VAR_INPUT
+        i_Xpv : LReal;        // Sts.AxisX.PV (posição atual X, V)
+        i_Zpv : LReal;        // Sts.AxisZ.PV (posição atual Z, V)
+        i_XInPos : Bool;      // Sts.AxisX.InPos
+        i_ZInPos : Bool;      // Sts.AxisZ.InPos
+        i_Rotating : Bool;    // Sts.Rotating (TRUE = braço girando)
+        i_Z_up : LReal;       // Cfg.Z_up   (referência Z recolhido)
+        i_X_home : LReal;     // Cfg.X_home (referência X recolhido)
+        i_Xtarget : LReal;    // alvo de X a validar p/ CanDescendZ (X_pick OU X_place, conforme o passo)
+        i_PosTol : LReal;     // Cfg.PosTol (tolerância de posição)
+    END_VAR
+
+    VAR_OUTPUT
+        o_CanMoveX : Bool;    // pode mover X
+        o_CanDescendZ : Bool; // pode descer Z (no alvo i_Xtarget)
+        o_CanRotate : Bool;   // pode rotacionar
+    END_VAR
+
+    VAR_TEMP
+        t_zAtUp : Bool;       // Z recolhido (up) dentro da tolerância
+        t_xAtHome : Bool;     // X em home dentro da tolerância
+        t_xAtTgt : Bool;      // X no alvo (i_Xtarget) dentro da tolerância
+    END_VAR
+
+BEGIN
+    REGION Condicoes geometricas dos eixos
+        // padrão: InPos AND |PV - ref| <= PosTol
+        #t_zAtUp   := #i_ZInPos AND ABS(#i_Zpv - #i_Z_up)    <= #i_PosTol;
+        #t_xAtHome := #i_XInPos AND ABS(#i_Xpv - #i_X_home)  <= #i_PosTol;
+        #t_xAtTgt  := #i_XInPos AND ABS(#i_Xpv - #i_Xtarget) <= #i_PosTol;
+    END_REGION
+
+    REGION Permissoes de anticolisao
+        // Mover X só com Z subido (up) e sem rotação em curso — passos 1/6/8/14 do Seq.
+        #o_CanMoveX    := #t_zAtUp AND NOT #i_Rotating;
+        // Descer Z só com X no alvo e sem rotação em curso — passos 2/10 do Seq.
+        #o_CanDescendZ := #t_xAtTgt AND NOT #i_Rotating;
+        // Girar só com Z up + X em home e sem rotação em curso — passos 7/15 do Seq.
+        #o_CanRotate   := #t_zAtUp AND #t_xAtHome AND NOT #i_Rotating;
+    END_REGION
+END_FUNCTION

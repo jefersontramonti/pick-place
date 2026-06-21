@@ -25,11 +25,16 @@ VERSION : 0.1
         i_SeqFault : Bool;    // falha vinda da sequencia (timeout de passo etc.)
         i_ClkSlow : Bool;    // pisca lento (byte de clock da CPU, via OB_Main)
         i_ClkFast : Bool;    // pisca rapido (byte de clock da CPU, via OB_Main)
+        i_AutoMode : Bool;    // TRUE=AUTO, FALSE=MANUAL (origem Cmd.AutoMode)
+        i_Step : Int;     // passo atual da sequencia (gate de troca de modo)
     END_VAR
 
     VAR_OUTPUT
         o_Mode : Int;    // 0=PARADO 1=RODANDO 2=EMERGENCIA 3=FALHA
-        o_Run : Bool;   // habilita esteiras + sequencia (TRUE so em RODANDO)
+        o_Run : Bool;   // habilita esteiras + sequencia (TRUE so em RODANDO) — = o_RunAuto OR o_RunManual
+        o_RunAuto : Bool;   // habilita ramo AUTO (Seq) — RODANDO e modo AUTO
+        o_RunManual : Bool;   // habilita ramo MANUAL — RODANDO e modo MANUAL
+        o_AutoMode : Bool;   // modo latcheado ativo (TRUE=AUTO, FALSE=MANUAL) — p/ mux do OB
         o_SafeState : Bool;   // TRUE em PARADO/EMERGENCIA/FALHA (mascara das saidas)
         o_Red : Bool;   // torre vermelho
         o_Green : Bool;   // torre verde
@@ -44,6 +49,7 @@ VERSION : 0.1
         s_Reset : R_TRIG;     // borda de subida do Reset
         s_Start : R_TRIG;     // borda de subida do Start
         s_Latched : Bool;       // latch de EMERGENCIA (so emergencia; falha e NIVEL via i_SeqFault)
+        s_AutoMode : Bool := TRUE;   // modo ativo latcheado (default AUTO); so troca em i_Step=0
     END_VAR
 
 BEGIN
@@ -66,6 +72,21 @@ BEGIN
         IF #s_Reset.Q AND #i_EStop THEN
             #s_Latched := FALSE;
         END_IF;
+    END_REGION
+
+    REGION Selecao de modo AUTO/MANUAL (gate Step=0)
+    // AUTO/MANUAL e ORTOGONAL aos 4 estados (nao e 5o estado). O modo so pode
+    // trocar com a sequencia em repouso (i_Step = 0): no meio do ciclo o modo
+    // fica CONGELADO. Em qualquer outro passo, ignora i_AutoMode. (O gate "fora
+    // de estado seguro" e garantido a jusante: o_RunAuto/o_RunManual so ficam
+    // TRUE em RODANDO, onde s_State=1 implica NOT o_SafeState.)
+        IF #i_Step = 0 THEN
+            #s_AutoMode := #i_AutoMode;
+        END_IF;
+        // Expoe o modo latcheado interno p/ o mux do OB (ramifica por modo, NAO por
+        // o_RunAuto): o ramo AUTO deve rodar TODO scan — inclusive PARADO/E-Stop — para
+        // que o FB_PickPlaceSeq se resete a IDLE (IF i_SafeState OR NOT i_Run -> Step:=0).
+        #o_AutoMode := #s_AutoMode;
     END_REGION
 
     REGION Maquina de modo (prioridade: emergencia > falha > stop > operacao)
@@ -93,17 +114,28 @@ BEGIN
         // Luz de Reset: pisca enquanto houver latch a rearmar; apaga apos reset bem-sucedido.
         #o_ResetLite := (#s_Latched OR #i_SeqFault) AND #i_ClkSlow;
 
+        // Derivacao das saidas de habilitacao: o ramo AUTO e o ramo MANUAL sao
+        // EXCLUSIVOS por construcao (so um de s_AutoMode/NOT s_AutoMode e TRUE) e
+        // ambos exigem RODANDO (s_State=1). o_Run e mantido por compatibilidade:
+        // verdadeiro em RODANDO em qualquer modo. Calculado fora do CASE para
+        // garantir coerencia (nunca o_RunAuto E o_RunManual juntos no mesmo scan).
+        #o_RunAuto := (#s_State = 1) AND #s_AutoMode;
+        #o_RunManual := (#s_State = 1) AND NOT #s_AutoMode;
+        #o_Run := #o_RunAuto OR #o_RunManual;
+
         CASE #s_State OF
-            1 : // RODANDO
-                #o_Run := TRUE;
+            1 : // RODANDO — verde fixo em AUTO; verde pisca LENTO em MANUAL.
                 #o_SafeState := FALSE;
-                #o_Green := TRUE;
+                IF #s_AutoMode THEN
+                    #o_Green := TRUE;
+                ELSE
+                    #o_Green := #i_ClkSlow;
+                END_IF;
                 #o_Yellow := FALSE;
                 #o_Red := FALSE;
                 #o_StartLite := TRUE;
                 #o_StopLite := FALSE;
             2 : // EMERGENCIA — vermelho piscando rapido
-                #o_Run := FALSE;
                 #o_SafeState := TRUE;
                 #o_Green := FALSE;
                 #o_Yellow := FALSE;
@@ -112,7 +144,6 @@ BEGIN
                 #o_StopLite := FALSE;
             3 : // FALHA — vermelho pisca LENTO (distingue da emergencia, que pisca rapido).
                 // Como FALHA = "PARADO + indicacao" (escopo §3), a luz Desliga segue acesa.
-                #o_Run := FALSE;
                 #o_SafeState := TRUE;
                 #o_Green := FALSE;
                 #o_Yellow := FALSE;
@@ -120,7 +151,6 @@ BEGIN
                 #o_StartLite := FALSE;
                 #o_StopLite := TRUE;
             ELSE  // 0 PARADO — amarelo piscando lento, luz Desliga acesa
-                #o_Run := FALSE;
                 #o_SafeState := TRUE;
                 #o_Green := FALSE;
                 #o_Yellow := #i_ClkSlow;

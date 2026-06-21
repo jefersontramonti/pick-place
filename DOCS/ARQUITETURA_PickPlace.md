@@ -425,10 +425,13 @@ Validar cada bloco no linter SCL (MCP) e sincronizar `DOCS/tags.md` ao fechar ca
 
 ---
 
-## FASE PLANEJADA: Modo MANUAL + IHM SIMATIC (NÃO implementado)
+## FASE: Modo MANUAL + IHM SIMATIC (✅ LÓGICA IMPLEMENTADA — falta TIA/WinCC + PLCSIM)
 
 > Blueprint do `scl-architect` (sessão 2026-06-20), decisões confirmadas pelo usuário.
-> **Ainda NÃO implementado** — guia para o `/new-block` desta fase. Nada disto virou `.scl`.
+> **Lógica `.scl` implementada e validada na sessão 2026-06-21** (FC_Interlocks, typeStation
+> estendido, FB_MachineMode com mux, FB_ManualControl novo, OB_Main fiado). Revisada pelo
+> scl-reviewer + safety-auditor (aprovado, sem CRÍTICO/ALTO). **Pendente só no TIA/WinCC**
+> (DBs de instância, reinit StationData, device TP1500 + telas) e **validação no PLCSIM**.
 
 ### Decisões fixadas
 - **IHM = painel SIMATIC TP1500 Comfort** (`6AV2124-0QC24-1AX0`; 15.6" touch, **1366×768**),
@@ -451,19 +454,26 @@ DB-cêntrico: `FB_ManualControl` escreve os **mesmos** `Sts.*` que o `FB_PickPla
   RotCW, RotCCW, RotHome, VacOn, VacOff }` + `Sts.ManActive`, `Sts.ManRejected` (Int, jog bloqueado).
 - **`FC_Interlocks`** (recomendado, novo) — guardas de anticolisão **puras** (`CanMoveX`,
   `CanDescendZ`, `CanRotate`), usadas pelo Seq **e** pelo Manual = **fonte única** da regra.
-- **`FB_MachineMode`** — `+i_AutoMode` → `o_RunAuto`/`o_RunManual`; MANUAL = **verde piscando lento**;
-  gate de troca de modo (só em `Step=0`). FSM 0..3 e latches **inalterados** (refazer auditoria safety).
+- **`FB_MachineMode`** — `+i_AutoMode`, `+i_Step` → `o_RunAuto`/`o_RunManual`/**`o_AutoMode`** (modo
+  latcheado, p/ o mux); MANUAL = **verde piscando lento**; gate de troca de modo (só em `Step=0`,
+  via `s_AutoMode := i_AutoMode` quando `i_Step=0`). FSM 0..3 e latches **inalterados**.
 - **`FB_ManualControl`** (novo) — instâncias **próprias** de `FB_AxisPos`/`FB_Rotate180`/
   `FB_RotateToHome`; aplica as guardas (via `FC_Interlocks`); escreve `Sts.M1Speed/M2Speed/VacuumOn/
-  AxisX.SP/AxisZ.SP`; esteiras = jog puro; rotação por pulso (R_TRIG nos comandos).
-- **`FB_PickPlaceSeq`** — `i_Run ← o_RunAuto` (1 fio no OB).
-- **`OB_Main`** — mux condicional AUTO/MANUAL + roteamento de `RotCW/RotCCW` da fonte ativa.
+  AxisX.SP/AxisZ.SP` + `Sts.ManRejected`; esteiras = jog puro; rotação por pulso (R_TRIG nos
+  comandos). Gate-mestre `t_active = i_RunManual AND NOT i_SafeState AND NOT i_Fault`. Homing exige
+  Z up (anticolisão §7) e solta o trigger também na falha de homing.
+- **`FB_PickPlaceSeq`** — `i_Run` segue vindo de `o_Run` (no ramo AUTO, `o_Run == o_RunAuto`); o Seq
+  roda **todo scan em AUTO** para preservar o "Reset a IDLE" (`i_SafeState OR NOT i_Run`).
+- **`OB_Main`** — mux por **modo latcheado** (`IF o_AutoMode`) + roteamento de `RotCW/RotCCW` da
+  fonte ativa; `Sts.ManActive := o_RunManual` (escritor canônico no OB).
 
-### Ordem de chamada no OB (mux)
-`1) FC_IoMapInputs → 2) byte de clock → 3) FB_MachineMode(+i_AutoMode) →
-4) IF AUTO: FB_Conveyor M1/M2 + FB_PickPlaceSeq(i_Run:=o_RunAuto)
-   ELSE:    FB_ManualControl(i_RunManual:=o_RunManual) →
-5) FC_IoMapOutputs` (o ramo inativo não roda → não escreve `Sts.*`).
+### Ordem de chamada no OB (mux) — IMPLEMENTADO
+`1) FC_IoMapInputs → 2) byte de clock → 3) FB_MachineMode(+i_AutoMode:=Cmd.AutoMode, +i_Step:=Sts.Step) →
+4) IF o_AutoMode: FB_Conveyor M1/M2 + FB_PickPlaceSeq(i_Run:=o_Run)  [rotCW/CCW do Seq]
+   ELSE:          FB_ManualControl(i_RunManual:=o_RunManual, i_SafeState, i_Fault:=Sts.Fault)  [rotCW/CCW do Manual]
+   → Sts.ManActive := o_RunManual → 5) FC_IoMapOutputs` (o ramo inativo não roda → não escreve
+`Sts.*`). **Decisão-chave:** o mux ramifica por `o_AutoMode` (modo latcheado), **não** por
+`o_RunAuto` — senão o Seq não rodaria em AUTO+PARADO/E-Stop e não resetaria à IDLE.
 
 ### Mapa de tags da IHM (WinCC ↔ StationData, simbólico)
 - **IHM escreve:** `Cmd.Start/Stop/EStop/Reset`, `Cmd.AutoMode`, `Cmd.Man.*`, `Cfg.*` (calibração).
@@ -485,3 +495,21 @@ criar device WinCC + telas + binding de tags.
 - Divergência de guardas Seq×Manual → mitigada pela `FC_Interlocks` (fonte única).
 - Duplo-escritor em `Sts.*` → o reviewer deve confirmar que o ramo inativo não roda.
 - *Bumpless* AUTO↔MANUAL → validar no PLCSIM que não há salto de SP na troca.
+
+### Contrato de uso do `FC_Interlocks` (requisitos do CHAMADOR — do safety-auditor)
+
+`FC_Interlocks` (criado 2026-06-21, validado/revisado/aprovado) entrega **permissão geométrica**
+(`o_CanMoveX/CanDescendZ/CanRotate`) — condição **necessária mas NÃO suficiente**. O **`FB_ManualControl`**
+DEVE garantir, ao usá-la:
+- **ALTO-1:** comandar atuador só com `permissão_FC AND i_RunManual AND NOT i_SafeState AND NOT Fault`
+  (a FC não conhece E-Stop; sozinha liberaria jog em emergência).
+- **ALTO-2:** **exclusão mútua de rotação** (`RotCW ⊻ RotCCW`) + **handshake de partida** — não emitir
+  pulso cru; reaproveitar a lógica de borda do `FB_Rotate180` (instância própria).
+- **MÉDIO-1:** passar como `i_Xtarget` **apenas** posições autorizadas (`X_pick`/`X_place`), **nunca o
+  PV livre** (senão `CanDescendZ` valida "X está onde está" → descer Z em qualquer X = colisão).
+- **MÉDIO-2:** exigir `RotHome` referenciado + validade do feedback analógico (PV plausível) antes de
+  confiar em InPos; clamp de curso por eixo (`LIMIT`) contra over-travel no jog.
+- **Normativo C-1:** sendo a fonte única de anticolisão "soft" em CPU standard, reforça a decisão de
+  manter standard (risco residual) vs migrar para F-CPU/PROFIsafe/STO se houver acesso de pessoas.
+- (MÉDIO do reviewer) validar no PLCSIM que o `NOT i_Rotating` extra em CanMoveX/CanDescendZ não
+  bloqueia os passos 1/6/14 por `Rotating` residual logo após uma rotação.

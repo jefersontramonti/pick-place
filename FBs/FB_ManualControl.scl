@@ -1,0 +1,328 @@
+FUNCTION_BLOCK "FB_ManualControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
+// FB_ManualControl: controle MANUAL da estacao Pick & Place (modo IHM TP1500). Instancia unica
+// chamada SO pelo OB_Main no ramo ELSE do mux AUTO/MANUAL (Seq XOR Manual -> um unico
+// escritor por atuador/scan). Reusa primitivos com INSTANCIAS PROPRIAS (nao compartilha
+// com o FB_PickPlaceSeq): FB_AxisPos x2 (X,Z), FB_Rotate180 x2 (CW,CCW), FB_RotateToHome
+// (homing). Escreve os MESMOS Sts.* que o Seq (M1Speed/M2Speed/VacuumOn/AxisX.SP/AxisZ.SP)
+// + Sts.ManRejected. FC_IoMapOutputs fica INALTERADO (barreira fisica + mascara unica).
+// Sts.ManActive e escrito pelo OB (espelho de o_RunManual), NAO aqui.
+//
+// Guardas de anticolisao vem da FC_Interlocks (fonte unica, igual ao Seq). A FC NAO conhece
+// E-Stop/RODANDO: o gate-mestre (t_active) e responsabilidade deste FB (ALTO-1 do contrato).
+//
+// Normativo C-1: jog manual aumenta a exposicao do operador (comando direto de eixos). A
+// parada segura real exigiria F-CPU/PROFIsafe/STO; esta logica e standard (anticolisao "soft").
+// Decisao de risco do usuario (inalterada). O E-Stop da IHM NAO e parada de seguranca — o
+// E-Stop valido e o fisico NF %I0.3, tratado a montante (FB_MachineMode -> i_SafeState).
+
+    VAR_INPUT
+        i_RunManual : Bool;   // RODANDO em MANUAL (FB_MachineMode.o_RunManual)
+        i_SafeState : Bool;   // estado seguro (E-Stop/Stop/falha — prioridade maxima)
+        i_Fault : Bool;   // falha latcheada ativa (FB_PickPlaceSeq.o_Fault espelhado)
+    END_VAR
+
+    VAR_OUTPUT
+        o_RotCW : Bool;   // -> FC_IoMapOutputs.i_RotCW (roteado pelo OB quando MANUAL)
+        o_RotCCW : Bool;   // -> FC_IoMapOutputs.i_RotCCW
+    END_VAR
+
+    VAR_IN_OUT
+        io_Station : "typeStation";   // referencia ao StationData.Station
+    END_VAR
+
+    VAR
+        s_AxisX : "FB_AxisPos";        // instancia propria do eixo X
+        s_AxisZ : "FB_AxisPos";        // instancia propria do eixo Z
+        s_RotCW : "FB_Rotate180";      // pulso de rotacao horario (instancia propria)
+        s_RotCCW : "FB_Rotate180";     // pulso de rotacao anti-horario
+        s_RotHome : "FB_RotateToHome"; // homing rotacional (instancia propria)
+        s_rRotCW : R_TRIG;             // borda do comando manual RotCW
+        s_rRotCCW : R_TRIG;            // borda do comando manual RotCCW
+        s_rRotHome : R_TRIG;           // borda do comando manual RotHome
+        s_trigCW : Bool;               // sustento do trigger CW ate o handshake do sub-FB
+        s_trigCCW : Bool;              // sustento do trigger CCW
+        s_trigHome : Bool;             // sustento do trigger de homing
+        s_xTarget : LReal;             // setpoint X corrente (persiste = bumpless)
+        s_zTarget : LReal;             // setpoint Z corrente
+        s_xEnable : Bool;              // habilita o eixo X neste scan
+        s_zEnable : Bool;              // habilita o eixo Z neste scan
+        s_vac : Bool;                  // latch do vacuo (VacOn liga, VacOff domina)
+    END_VAR
+
+    VAR_TEMP
+        t_canMoveX : Bool;       // permissao geometrica de mover X (da FC)
+        t_canDescendZ : Bool;    // permissao geometrica de descer Z (da FC)
+        t_canRotate : Bool;      // permissao geometrica de rotacionar (da FC)
+        t_reqXPick : Bool;       // pedido cru: X -> X_pick
+        t_reqXHome : Bool;       // pedido cru: X -> X_home
+        t_reqXPlace : Bool;      // pedido cru: X -> X_place
+        t_reqZUp : Bool;         // pedido cru: Z -> Z_up
+        t_reqZPlace : Bool;      // pedido cru: Z -> Z_place
+        t_nReqX : Int;           // contagem de pedidos de X simultaneos
+        t_nReqZ : Int;           // contagem de pedidos de Z simultaneos
+        t_active : Bool;         // gate-mestre (RODANDO MANUAL E NOT safe E NOT falha)
+        t_xTgtForZ : LReal;      // alvo de X passado a FC (X_pick/X_place, NUNCA o PV livre)
+        t_rejected : Int;        // codigo do PRIMEIRO evento de bloqueio do scan (0=ok; primeiro vence)
+        t_xMin : LReal;          // limite inferior de curso X (clamp)
+        t_xMax : LReal;          // limite superior de curso X
+        t_zMin : LReal;          // limite inferior de curso Z
+        t_zMax : LReal;          // limite superior de curso Z
+        t_rotBusy : Bool;        // alguma instancia de rotacao ocupada (exclusao mutua)
+        t_zAtUp : Bool;          // Z recolhido (up) — guarda anticolisao §7 do homing
+    END_VAR
+
+BEGIN
+
+    REGION Gate-mestre (ALTO-1)
+    // Gate-mestre: NENHUM atuador e comandado fora de t_active. E-Stop/Stop/falha
+    // bloqueiam tudo. Os eixos NAO dao RETURN: sao chamados com i_SafeState:=NOT t_active
+    // (congelam no PV e mantem Sts.AxisX/Z.SP); os sub-FBs de rotacao zeram seus pulsos.
+        #t_active := #i_RunManual AND NOT #i_SafeState AND NOT #i_Fault;
+
+        // defaults fail-safe das permissoes (sobrescritas pela FC_Interlocks via =>)
+        #t_canMoveX := FALSE;
+        #t_canDescendZ := FALSE;
+        #t_canRotate := FALSE;
+        #t_rejected := 0;
+        IF NOT #t_active THEN
+            // zera tudo que e comando direto; eixos/rotacao tratados nas chamadas abaixo
+            #io_Station.Sts.M1Speed := 0.0;
+            #io_Station.Sts.M2Speed := 0.0;
+            #s_vac := FALSE;
+            #io_Station.Sts.VacuumOn := FALSE;
+            #s_xEnable := FALSE;
+            #s_zEnable := FALSE;
+            #s_trigCW := FALSE;
+            #s_trigCCW := FALSE;
+            #s_trigHome := FALSE;
+            #o_RotCW := FALSE;
+            #o_RotCCW := FALSE;
+        END_IF;
+    END_REGION
+
+    REGION Alvo de X para a FC (MEDIO-1)
+    // i_Xtarget da FC_Interlocks deve ser SEMPRE uma posicao autorizada (X_pick ou X_place),
+    // NUNCA o PV livre (senao CanDescendZ valida "X esta onde esta" -> descer Z em qualquer X).
+    // Se X esta em X_place (tolerancia), o alvo e X_place; caso contrario assume X_pick.
+        IF ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_place) <= #io_Station.Cfg.PosTol THEN
+            #t_xTgtForZ := #io_Station.Cfg.X_place;
+        ELSE
+            #t_xTgtForZ := #io_Station.Cfg.X_pick;
+        END_IF;
+    END_REGION
+
+    REGION Guardas via FC_Interlocks (fonte unica)
+    // FUNCTION:Void chamada como statement; saidas capturadas via =>. Permissao geometrica
+    // (necessaria mas NAO suficiente) — o gate-mestre acima cobre E-Stop/falha (ALTO-1).
+        "FC_Interlocks"(i_Xpv := #io_Station.Sts.AxisX.PV,
+                        i_Zpv := #io_Station.Sts.AxisZ.PV,
+                        i_XInPos := #io_Station.Sts.AxisX.InPos,
+                        i_ZInPos := #io_Station.Sts.AxisZ.InPos,
+                        i_Rotating := #io_Station.Sts.Rotating,
+                        i_Z_up := #io_Station.Cfg.Z_up,
+                        i_X_home := #io_Station.Cfg.X_home,
+                        i_Xtarget := #t_xTgtForZ,
+                        i_PosTol := #io_Station.Cfg.PosTol,
+                        o_CanMoveX => #t_canMoveX,
+                        o_CanDescendZ => #t_canDescendZ,
+                        o_CanRotate => #t_canRotate);
+    END_REGION
+
+    REGION Arbitragem dos eixos
+    // So arbitra com t_active; fora dele os enables/SP ja foram zerados (eixos congelam no PV).
+        IF #t_active THEN
+
+            REGION Clamp de curso (MEDIO-2)
+            // Limites de curso 0..10 V (sem criar campos no UDT por ora). LIMIT contra over-travel.
+                #t_xMin := 0.0;
+                #t_xMax := 10.0;
+                #t_zMin := 0.0;
+                #t_zMax := 10.0;
+            END_REGION
+
+            REGION Eixo X (3 destinos predefinidos)
+            // Conta pedidos: >1 = conflito (rejeitado 1); =1 com permissao -> escolhe o SP;
+            // =1 sem permissao geometrica (Z nao up / Rotating) -> rejeitado 2.
+                #t_reqXPick := #io_Station.Cmd.Man.XToPick;
+                #t_reqXHome := #io_Station.Cmd.Man.XToHome;
+                #t_reqXPlace := #io_Station.Cmd.Man.XToPlace;
+                #t_nReqX := BOOL_TO_INT(#t_reqXPick)
+                          + BOOL_TO_INT(#t_reqXHome)
+                          + BOOL_TO_INT(#t_reqXPlace);
+
+                IF #t_nReqX > 1 THEN
+                    IF #t_rejected = 0 THEN #t_rejected := 1; END_IF;   // conflito de X
+                ELSIF #t_nReqX = 1 THEN
+                    IF #t_canMoveX THEN
+                        #s_xEnable := TRUE;
+                        IF #t_reqXPick THEN
+                            #s_xTarget := #io_Station.Cfg.X_pick;
+                        ELSIF #t_reqXHome THEN
+                            #s_xTarget := #io_Station.Cfg.X_home;
+                        ELSE
+                            #s_xTarget := #io_Station.Cfg.X_place;
+                        END_IF;
+                    ELSE
+                        IF #t_rejected = 0 THEN #t_rejected := 2; END_IF;   // X bloqueado (Z nao up / Rotating)
+                    END_IF;
+                END_IF;
+            END_REGION
+
+            REGION Eixo Z (subir sempre; descer so com permissao)
+            // ZToUp e sempre permitido (sentido seguro). ZToPlace exige CanDescendZ (X no alvo).
+            // Conflito ZToUp+ZToPlace -> rejeitado 4; ZToPlace sem permissao -> rejeitado 3.
+                #t_reqZUp := #io_Station.Cmd.Man.ZToUp;
+                #t_reqZPlace := #io_Station.Cmd.Man.ZToPlace;
+                #t_nReqZ := BOOL_TO_INT(#t_reqZUp) + BOOL_TO_INT(#t_reqZPlace);
+
+                IF #t_nReqZ > 1 THEN
+                    IF #t_rejected = 0 THEN #t_rejected := 4; END_IF;   // conflito de Z
+                ELSIF #t_reqZUp THEN
+                    #s_zEnable := TRUE;
+                    #s_zTarget := #io_Station.Cfg.Z_up;
+                ELSIF #t_reqZPlace THEN
+                    IF #t_canDescendZ THEN
+                        #s_zEnable := TRUE;
+                        #s_zTarget := #io_Station.Cfg.Z_place;
+                    ELSE
+                        IF #t_rejected = 0 THEN #t_rejected := 3; END_IF;   // descida Z bloqueada
+                    END_IF;
+                END_IF;
+            END_REGION
+
+            REGION Clamp dos setpoints (LIMIT)
+                #s_xTarget := LIMIT(MN := #t_xMin, IN := #s_xTarget, MX := #t_xMax);
+                #s_zTarget := LIMIT(MN := #t_zMin, IN := #s_zTarget, MX := #t_zMax);
+            END_REGION
+
+            REGION Esteiras (jog puro)
+            // Jog puro: liga enquanto pressionado, velocidade de regime; sem box-stop, sem FB_Conveyor.
+                IF #io_Station.Cmd.Man.M1Run THEN
+                    #io_Station.Sts.M1Speed := #io_Station.Cfg.ConvSpeed;
+                ELSE
+                    #io_Station.Sts.M1Speed := 0.0;
+                END_IF;
+                IF #io_Station.Cmd.Man.M2Run THEN
+                    #io_Station.Sts.M2Speed := #io_Station.Cfg.ConvSpeed;
+                ELSE
+                    #io_Station.Sts.M2Speed := 0.0;
+                END_IF;
+            END_REGION
+
+            REGION Vacuo (latch; VacOff domina = fail-safe)
+                IF #io_Station.Cmd.Man.VacOff THEN
+                    #s_vac := FALSE;
+                ELSIF #io_Station.Cmd.Man.VacOn THEN
+                    #s_vac := TRUE;
+                END_IF;
+            END_REGION
+
+            REGION Rotacao por pulso (ALTO-2: exclusao mutua + handshake)
+            // R_TRIG nos comandos manuais; arma o sustento do trigger SO na borda, com permissao
+            // geometrica e exclusao mutua (nenhum outro trig/Busy ativo). Sustenta ate o handshake
+            // do sub-FB (Busy/Done), padrao do FB_PickPlaceSeq pos-fix. Bloqueio -> rejeitado 5.
+                #s_rRotCW(CLK := #io_Station.Cmd.Man.RotCW);
+                #s_rRotCCW(CLK := #io_Station.Cmd.Man.RotCCW);
+                #s_rRotHome(CLK := #io_Station.Cmd.Man.RotHome);
+
+                // ocupacao corrente (qualquer rotacao em andamento) — base da exclusao mutua
+                #t_rotBusy := #s_trigCW OR #s_trigCCW OR #s_trigHome
+                            OR #s_RotCW.o_Busy OR #s_RotCCW.o_Busy OR #s_RotHome.o_Busy;
+
+                // Z up (mesmo criterio da FC_Interlocks p/ Z up). Anticolisao §7: rotacionar
+                // SO com Z subido — vale tambem para o homing (BAIXO-2 do safety).
+                #t_zAtUp := #io_Station.Sts.AxisZ.InPos
+                          AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol;
+
+                // CW: arma so na borda, com permissao e sem nenhuma outra rotacao ativa
+                IF #s_rRotCW.Q THEN
+                    IF #t_canRotate AND NOT #t_rotBusy THEN
+                        #s_trigCW := TRUE;
+                    ELSE
+                        IF #t_rejected = 0 THEN #t_rejected := 5; END_IF;   // rotacao bloqueada (geometria/exclusao)
+                    END_IF;
+                ELSIF #s_rRotCCW.Q THEN
+                    IF #t_canRotate AND NOT #t_rotBusy THEN
+                        #s_trigCCW := TRUE;
+                    ELSE
+                        IF #t_rejected = 0 THEN #t_rejected := 5; END_IF;
+                    END_IF;
+                ELSIF #s_rRotHome.Q THEN
+                    // homing: nao exige t_canRotate (X em home seria circular), mas exige Z up
+                    // (anticolisao §7) e exclusao mutua. Sem Z up -> rejeitado 5 (rotacao bloqueada).
+                    IF #t_zAtUp AND NOT #t_rotBusy THEN
+                        #s_trigHome := TRUE;
+                    ELSE
+                        IF #t_rejected = 0 THEN #t_rejected := 5; END_IF;
+                    END_IF;
+                END_IF;
+
+                // sustento ate o handshake: cai quando o sub-FB conclui (Done) e nao esta mais Busy
+                IF #s_trigCW AND #s_RotCW.o_Done AND NOT #s_RotCW.o_Busy THEN
+                    #s_trigCW := FALSE;
+                END_IF;
+                IF #s_trigCCW AND #s_RotCCW.o_Done AND NOT #s_RotCCW.o_Busy THEN
+                    #s_trigCCW := FALSE;
+                END_IF;
+                // MEDIO-3: solta tambem na FALHA do homing (CCW ate MaxSteps sem ver HOME).
+                // Sem isto, o_Done nunca sobe e s_trigHome ficaria preso -> trava a exclusao mutua.
+                IF #s_trigHome AND (#s_RotHome.o_Done OR #s_RotHome.o_Fault) AND NOT #s_RotHome.o_Busy THEN
+                    #s_trigHome := FALSE;
+                END_IF;
+            END_REGION
+
+        END_IF;
+    END_REGION
+
+    REGION Vacuo -> Sts (so com t_active)
+    // Reforca o estado seguro: vacuo so energiza com t_active (fora dele ja foi zerado acima).
+        #io_Station.Sts.VacuumOn := #s_vac AND #t_active;
+    END_REGION
+
+    REGION Chamada sub-FBs
+    // Chamados INCONDICIONALMENTE, todo scan, com i_SafeState:=NOT t_active (congelam no PV /
+    // zeram pulsos). Tol/Debounce de Cfg (fonte unica, igual ao Seq).
+        #s_AxisX(i_Enable := #s_xEnable, i_SafeState := NOT #t_active, i_SetPoint := #s_xTarget,
+                 i_PV := #io_Station.Sts.AxisX.PV, i_Tol := #io_Station.Cfg.PosTol,
+                 i_Debounce := #io_Station.Cfg.PosDebounce);
+        #s_AxisZ(i_Enable := #s_zEnable, i_SafeState := NOT #t_active, i_SetPoint := #s_zTarget,
+                 i_PV := #io_Station.Sts.AxisZ.PV, i_Tol := #io_Station.Cfg.PosTol,
+                 i_Debounce := #io_Station.Cfg.PosDebounce);
+        #s_RotCW(i_Trig := #s_trigCW, i_Dir := TRUE, i_Rotating := #io_Station.Sts.Rotating,
+                 i_SafeState := NOT #t_active);
+        #s_RotCCW(i_Trig := #s_trigCCW, i_Dir := FALSE, i_Rotating := #io_Station.Sts.Rotating,
+                  i_SafeState := NOT #t_active);
+        #s_RotHome(i_Trig := #s_trigHome, i_AtHome := #io_Station.Sts.RotHome,
+                   i_Rotating := #io_Station.Sts.Rotating, i_SafeState := NOT #t_active, i_MaxSteps := 4);
+    END_REGION
+
+    REGION Espelha status e saidas de rotacao
+    // Escreve Sts.* APOS as chamadas. o_RotCW/CCW por pulso dos sub-FBs (exclusao mutua mantida:
+    // CW e exclusivo; CCW = rotacao CCW OR homing, que nunca coexistem por t_rotBusy).
+        IF #t_active THEN
+            #io_Station.Sts.AxisX.SP := #s_AxisX.o_SetPointCmd;
+            #io_Station.Sts.AxisX.InPos := #s_AxisX.o_InPos;
+            #io_Station.Sts.AxisZ.SP := #s_AxisZ.o_SetPointCmd;
+            #io_Station.Sts.AxisZ.InPos := #s_AxisZ.o_InPos;
+            #io_Station.Sts.ManRejected := #t_rejected;   // primeiro evento de bloqueio do scan (0=ok)
+            #o_RotCW := #s_RotCW.o_PulseCW;
+            #o_RotCCW := #s_RotCCW.o_PulseCCW OR #s_RotHome.o_PulseCCW;
+        ELSE
+            // estado seguro: ainda espelha o SP congelado (bumpless) e zera o resto
+            #io_Station.Sts.AxisX.SP := #s_AxisX.o_SetPointCmd;
+            #io_Station.Sts.AxisX.InPos := #s_AxisX.o_InPos;
+            #io_Station.Sts.AxisZ.SP := #s_AxisZ.o_SetPointCmd;
+            #io_Station.Sts.AxisZ.InPos := #s_AxisZ.o_InPos;
+            #io_Station.Sts.ManRejected := 0;
+            #o_RotCW := FALSE;
+            #o_RotCCW := FALSE;
+        END_IF;
+    END_REGION
+
+END_FUNCTION_BLOCK

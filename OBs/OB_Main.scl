@@ -8,16 +8,26 @@ VERSION : 0.1
 // OB_Main (OB1): orquestrador ciclico da estacao Pick & Place. NAO contem logica de
 // processo — apenas roteia I/O fisica (via FCs de mapeamento) e encadeia os FCs/FBs na
 // ordem da §4 da arquitetura, propagando o_SafeState a todos no MESMO scan:
-//   1) FC_IoMapInputs -> 2) byte de clock (%M0.x) -> 3) FB_MachineMode -> 4) FB_Conveyor (M1)
-//   -> 5) FB_Conveyor (M2) -> 6) FB_PickPlaceSeq -> 7) FC_IoMapOutputs.
+//   1) FC_IoMapInputs -> 2) byte de clock (%M0.x) -> 3) FB_MachineMode(+i_AutoMode,+i_Step)
+//   -> 4-6) MUX de modo:
+//        AUTO   : FB_Conveyor (M1) -> FB_Conveyor (M2) -> FB_PickPlaceSeq  [rot src = Seq]
+//        MANUAL : FB_ManualControl                                        [rot src = Manual]
+//   -> 7) FC_IoMapOutputs.
 //
-// As 3 realimentacoes "produtor roda DEPOIS do consumidor" usam valores PERSISTIDOS
+// O mux RAMIFICA pelo MODO LATCHEADO (FB_MachineMode.o_AutoMode), NAO por o_RunAuto: o
+// FB_PickPlaceSeq so se reseta a IDLE se for chamado TODO scan em AUTO (inclusive em
+// PARADO/E-Stop). So UM ramo roda por scan -> escritor unico de Sts.* (sem corrida).
+// A rotacao (#t_rotCW/#t_rotCCW) e produzida pela fonte ativa do scan e a REGION 7
+// (FC_IoMapOutputs, INALTERADA) a mascara por i_SafeState — barreira fisica final.
+//
+// As realimentacoes "produtor roda DEPOIS do consumidor" usam valores PERSISTIDOS
 // (latencia de 1 scan, inocua — sao niveis sustentados, nunca pulsos):
 //   - i_SeqFault := "StationData".Station.Sts.Fault (escrito pela sequencia no scan anterior)
 //   - conveyors leem "FB_PickPlaceSeq_DB".o_ReleaseM1 / .o_PauseM2 (VAR_OUTPUT retido no DB).
-// Os 3 NAO usam VAR_TEMP (TEMP nasce indefinido a cada scan e quebraria o feedback).
+// Esses feedbacks NAO usam VAR_TEMP (TEMP nasce indefinido a cada scan e quebraria o feedback).
 //
-// As tags fisicas (entre aspas) e os 4 DBs de instancia existem so no projeto TIA.
+// As tags fisicas (entre aspas) e os 5 DBs de instancia (incl. FB_ManualControl_DB) existem
+// so no projeto TIA.
 
     VAR_TEMP
     // NOTA: VAR_TEMP nao aceita inicializador em SCL (L-stack, reset por scan). O aviso do
@@ -25,8 +35,11 @@ VERSION : 0.1
     // (o_* =>) do FB/FC produtor ANTES de ser lido no mesmo scan (padrao write-then-read).
         t_clkSlow : Bool;        // byte de clock -> MachineMode
         t_clkFast : Bool;        // byte de clock -> MachineMode
-        t_run : Bool;            // FB_MachineMode -> conveyors/seq
-        t_safeState : Bool;      // FB_MachineMode -> conveyors/seq/FC
+        t_run : Bool;            // FB_MachineMode -> conveyors/seq (ramo AUTO)
+        t_runAuto : Bool;        // FB_MachineMode -> habilita ramo AUTO (Seq)
+        t_runManual : Bool;      // FB_MachineMode -> habilita ramo MANUAL + espelho Sts.ManActive
+        t_autoMode : Bool;       // FB_MachineMode -> MODO latcheado (seletor do mux AUTO/MANUAL)
+        t_safeState : Bool;      // FB_MachineMode -> conveyors/seq/manual/FC
         t_mode : Int;            // FB_MachineMode -> espelho Sts.Mode
         t_red : Bool;            // FB_MachineMode -> FC saida
         t_green : Bool;          // FB_MachineMode -> FC saida
@@ -80,8 +93,13 @@ BEGIN
         i_SeqFault := "StationData".Station.Sts.Fault,
         i_ClkSlow := #t_clkSlow,
         i_ClkFast := #t_clkFast,
+        i_AutoMode := "StationData".Station.Cmd.AutoMode,
+        i_Step := "StationData".Station.Sts.Step,
         o_Mode => #t_mode,
         o_Run => #t_run,
+        o_RunAuto => #t_runAuto,
+        o_RunManual => #t_runManual,
+        o_AutoMode => #t_autoMode,
         o_SafeState => #t_safeState,
         o_Red => #t_red,
         o_Green => #t_green,
@@ -92,46 +110,71 @@ BEGIN
         "StationData".Station.Sts.Mode := #t_mode;   // espelho p/ HMI
     END_REGION
 
-    REGION 4 Esteira M1 (com sensor)
-    // i_Release do DB de instancia da sequencia (nivel do scan anterior)
-        "FB_Conveyor_M1_DB"(i_Run := #t_run,
-        i_SafeState := #t_safeState,
-        i_Speed := "StationData".Station.Cfg.ConvSpeed,
-        i_HasSensor := TRUE,
-        i_Sensor := "StationData".Station.Sts.SensorBox,
-        i_StopDelay := "StationData".Station.Cfg.M1StopDelay,
-        i_ForcePause := FALSE,
-        i_Release := "FB_PickPlaceSeq_DB".o_ReleaseM1,
-        o_Speed => #t_m1Speed,
-        o_BoxArrived => #t_boxM1);
-        "StationData".Station.Sts.M1Speed := #t_m1Speed;
-        "StationData".Station.Sts.BoxAtPick := #t_boxM1;
-    END_REGION
+    REGION 4-6 Mux de modo AUTO/MANUAL (escritor unico de Sts.* por scan)
+    // Ramifica pelo MODO LATCHEADO (t_autoMode), NAO por o_RunAuto: o FB_PickPlaceSeq tem
+    // "reset a IDLE" (IF i_SafeState OR NOT i_Run -> Step:=0), logo PRECISA ser chamado TODO
+    // scan em AUTO (inclusive PARADO/E-Stop) para se resetar. Por isso o seletor e o modo,
+    // nao a habilitacao. Apenas UM ramo roda por scan -> nunca ha duplo-escritor de Sts.*.
+    // t_rotCW/t_rotCCW sao definidos nos DOIS ramos (auto: Seq; manual: FB_ManualControl),
+    // ficando prontos para a REGION 7 (FC de saida) qualquer que seja o modo.
+        IF #t_autoMode THEN
+        // --- ramo AUTO: esteiras + sequencia rodam TODO scan (resetam em PARADO/E-Stop) ---
 
-    REGION 5 Esteira M2 (sem sensor)
-    // i_ForcePause do DB de instancia da sequencia (nivel passos 9..13)
-        "FB_Conveyor_M2_DB"(i_Run := #t_run,
-        i_SafeState := #t_safeState,
-        i_Speed := "StationData".Station.Cfg.ConvSpeed,
-        i_HasSensor := FALSE,
-        i_Sensor := FALSE,
-        i_StopDelay := T#0ms,
-        i_ForcePause := "FB_PickPlaceSeq_DB".o_PauseM2,
-        i_Release := FALSE,
-        o_Speed => #t_m2Speed,
-        o_BoxArrived => #t_boxM2);
-        "StationData".Station.Sts.M2Speed := #t_m2Speed;
-    END_REGION
+            REGION 4 Esteira M1 (com sensor)
+            // i_Release do DB de instancia da sequencia (nivel do scan anterior)
+                "FB_Conveyor_M1_DB"(i_Run := #t_run,
+                i_SafeState := #t_safeState,
+                i_Speed := "StationData".Station.Cfg.ConvSpeed,
+                i_HasSensor := TRUE,
+                i_Sensor := "StationData".Station.Sts.SensorBox,
+                i_StopDelay := "StationData".Station.Cfg.M1StopDelay,
+                i_ForcePause := FALSE,
+                i_Release := "FB_PickPlaceSeq_DB".o_ReleaseM1,
+                o_Speed => #t_m1Speed,
+                o_BoxArrived => #t_boxM1);
+                "StationData".Station.Sts.M1Speed := #t_m1Speed;
+                "StationData".Station.Sts.BoxAtPick := #t_boxM1;
+            END_REGION
 
-    REGION 6 Sequencia Pick & Place
-    // Escreve Sts.* via io_Station; aqui so capturamos RotCW/CCW p/ o FC de saida
-        "FB_PickPlaceSeq_DB"(i_Run := #t_run,
-        i_SafeState := #t_safeState,
-        i_Reset := "StationData".Station.Cmd.Reset,
-        i_EStop := "StationData".Station.Cmd.EStop,
-        o_RotCW => #t_rotCW,
-        o_RotCCW => #t_rotCCW,
-        io_Station := "StationData".Station);
+            REGION 5 Esteira M2 (sem sensor)
+            // i_ForcePause do DB de instancia da sequencia (nivel passos 9..13)
+                "FB_Conveyor_M2_DB"(i_Run := #t_run,
+                i_SafeState := #t_safeState,
+                i_Speed := "StationData".Station.Cfg.ConvSpeed,
+                i_HasSensor := FALSE,
+                i_Sensor := FALSE,
+                i_StopDelay := T#0ms,
+                i_ForcePause := "FB_PickPlaceSeq_DB".o_PauseM2,
+                i_Release := FALSE,
+                o_Speed => #t_m2Speed,
+                o_BoxArrived => #t_boxM2);
+                "StationData".Station.Sts.M2Speed := #t_m2Speed;
+            END_REGION
+
+            REGION 6 Sequencia Pick & Place
+            // Escreve Sts.* via io_Station; aqui so capturamos RotCW/CCW p/ o FC de saida
+                "FB_PickPlaceSeq_DB"(i_Run := #t_run,
+                i_SafeState := #t_safeState,
+                i_Reset := "StationData".Station.Cmd.Reset,
+                i_EStop := "StationData".Station.Cmd.EStop,
+                o_RotCW => #t_rotCW,
+                o_RotCCW => #t_rotCCW,
+                io_Station := "StationData".Station);
+            END_REGION
+
+        ELSE
+        // --- ramo MANUAL: o FB_ManualControl escreve Sts.M1Speed/M2Speed/AxisX-Z.SP/VacuumOn
+        // direto no DB (mesmos campos do Seq) e devolve a rotacao por pulso ---
+            "FB_ManualControl_DB"(i_RunManual := #t_runManual,
+            i_SafeState := #t_safeState,
+            i_Fault := "StationData".Station.Sts.Fault,
+            o_RotCW => #t_rotCW,
+            o_RotCCW => #t_rotCCW,
+            io_Station := "StationData".Station);
+        END_IF;
+
+        // ManActive espelhado pelo OB (local canonico — evita duplo-escritor no FB).
+        "StationData".Station.Sts.ManActive := #t_runManual;
     END_REGION
 
     REGION 7 DB -> saidas fisicas (com mascara de estado seguro)

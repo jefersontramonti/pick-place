@@ -238,3 +238,129 @@ endereçamento `%Q`/`%QD`. Garantia fail-safe mesmo com falha isolada de um FB i
   detente); **180° = 2 pulsos** no mesmo sentido, contando quedas de `Rotating` (`%I1.0`).
 - **A validar no commissioning (§9.2 do escopo):** valores exatos dos setpoints, polaridade
   real NC/NO e largura mínima do pulso de rotação.
+
+---
+
+## 10. Mapa de tags da IHM (Modo MANUAL + WinCC)
+
+> **Fase planejada — não implementado.** Blueprint do `scl-architect` (2026-06-20).
+> Painel **SIMATIC TP1500 Comfort** (6AV2124-0QC24-1AX0; 15.6" touch 1366×768), projetado
+> em **WinCC (TIA Portal)**, conecta via **PROFINET → CPU 1518T**. As tags abaixo são **simbólicas**
+> do `StationData` — **NOT physical I/O** (`%I`/`%Q`/`%ID`/`%QD`). A IHM escreve/lê via
+> binding de tags no WinCC, sem criar novos endereços físicos.
+>
+> **Convenção:** R = read (IHM lê), W = write (IHM escreve), RW = ambos.
+
+### 10.1 Tags de Comando (IHM → PLC)
+
+| Campo no `StationData.Station.Cmd` | Tipo | Dir | Descrição |
+|---|---|---|---|
+| `Start` | Bool | W | Botão "Liga" na tela — pulso (borda via `R_TRIG` no PLC) |
+| `Stop` | Bool | W | Botão "Desliga" na tela — NF (FALSE = parar) |
+| `EStop` | Bool | W | Botão "Emergência" na tela — NF (FALSE = emergência); **reforça o E-Stop físico**, não o substitui |
+| `Reset` | Bool | W | Botão "Reset" na tela — pulso (borda via `R_TRIG`) |
+| `AutoMode` | Bool | W | Seletor AUTO/MANUAL: `TRUE` = AUTO, `FALSE` = MANUAL |
+
+> ⚠️ **E-Stop físico (`%I0.3`) tem prioridade máxima:** E-Stop em tela é funcional (conforto),
+> mas E-Stop **físico NF** `%I0.3` é a parada de segurança. Em caso de divergência, físico vence.
+
+### 10.2 Tags de Comando Manual (IHM → PLC — apenas em modo MANUAL)
+
+| Campo no `StationData.Station.Cmd.Man` | Tipo | Dir | Descrição |
+|---|---|---|---|
+| `M1Run` | Bool | W | Jog esteira M1 — while pressionado (sem acúmulo de caixa) |
+| `M2Run` | Bool | W | Jog esteira M2 — while pressionado |
+| `XToPick` | Bool | W | Mover eixo X para `Cfg.X_pick` (pulso ou nível, conforme UX) |
+| `XToHome` | Bool | W | Mover eixo X para `Cfg.X_home` (retração) |
+| `XToPlace` | Bool | W | Mover eixo X para `Cfg.X_place` (depósito) |
+| `ZToUp` | Bool | W | Mover eixo Z para `Cfg.Z_up` (repouso) |
+| `ZToPlace` | Bool | W | Mover eixo Z para `Cfg.Z_place` (depósito) |
+| `RotCW` | Bool | W | Girar braço 90° horário (pulso) — acumula para 180° |
+| `RotCCW` | Bool | W | Girar braço 90° anti-horário (pulso) |
+| `RotHome` | Bool | W | Referenciar rotação — voltar p/ casa (orientação M1) |
+| `VacOn` | Bool | W | Ligar vácuo (Grab) |
+| `VacOff` | Bool | W | Desligar vácuo |
+
+> **Jog de eixos** é por **posições predefinidas** (não rampa contínua). Esteiras são **jog puro**
+> (while pressionado = liga; solta = 0 V). Rotação é por **pulso** (1 pulso = 90°).
+> **Intertravamentos garantem geometria segura:** jog de eixo rejeitado se Z não estiver up ou
+> Rotating ativo; descida do Z bloqueada sem Item Detected anti-esmagamento.
+
+### 10.3 Tags de Parametrização (IHM ↔ PLC — calibração)
+
+| Campo no `StationData.Station.Cfg` | Tipo | Dir | Descrição |
+|---|---|---|---|
+| `Enabled` | Bool | RW | Habilita ciclo AUTO (sempre consultado; calibração de startup) |
+| `X_pick` | LReal | RW | Setpoint X de pega (V) — inicial 7,7 |
+| `X_place` | LReal | RW | Setpoint X de depósito (V) — inicial 6,8 |
+| `X_home` | LReal | RW | Setpoint X recolhido (V) — inicial 0,0 |
+| `Z_up` | LReal | RW | Setpoint Z repouso/subido (V) — inicial 0,0 |
+| `Z_place` | LReal | RW | Setpoint Z depósito (V) — inicial 7,0 |
+| `Z_pickLimit` | LReal | RW | Limite de descida na pega (V) — proteção — inicial 8,0 |
+| `PosTol` | LReal | RW | Tolerância "em posição" (V) — inicial 0,1 |
+| `PosDebounce` | Time | RW | Debounce estabilização "em posição" — inicial T#200ms |
+| `ConvSpeed` | LReal | RW | Velocidade regime esteiras (V) — inicial 5,0 |
+| `M1StopDelay` | Time | RW | Atraso parada M1 após sensor (ms) — inicial T#500ms |
+| `SeqStepTimeout` | Time | RW | Timeout passo sequência → FALHA — inicial T#30s |
+| `ClkSlowHz` | LReal | RW | Frequência pisca lento (Hz) — inicial 1,0 |
+| `ClkFastHz` | LReal | RW | Frequência pisca rápido (Hz) — inicial 3,0 |
+
+> **Calibração em runtime:** ajustar sem recompilar. Valores têm **start values** no TIA Portal
+> (DB instância `StationData`); alterações na tela persistem apenas na sessão (RAM).
+> Para persistir, gravar em EEPROM via hardware config da CPU ou bloco `FC_SaveRestore`.
+
+### 10.4 Tags de Status (PLC → IHM — leitura)
+
+| Campo no `StationData.Station.Sts` | Tipo | Dir | Descrição |
+|---|---|---|---|
+| `Mode` | Int | R | Estado da máquina: 0=PARADO, 1=RODANDO, 2=EMERGÊNCIA, 3=FALHA |
+| `ManActive` | Bool | R | `TRUE` = modo MANUAL ativo (espelho de `FB_MachineMode.o_RunManual`); verde piscando lento |
+| `Step` | Int | R | Passo atual sequência AUTO (0..16); em MANUAL fica 0 |
+| `AxisX.PV` | LReal | R | Posição atual X (V) — feedback analógico |
+| `AxisX.SP` | LReal | R | Setpoint X atual (V) — valor sendo perseguido |
+| `AxisX.InPos` | Bool | R | `TRUE` = X em posição (dentro tolerância + debounce) |
+| `AxisZ.PV` | LReal | R | Posição atual Z (V) |
+| `AxisZ.SP` | LReal | R | Setpoint Z atual (V) |
+| `AxisZ.InPos` | Bool | R | `TRUE` = Z em posição |
+| `Rotating` | Bool | R | `TRUE` = braço em rotação (feedback `%I1.0`) |
+| `RotHome` | Bool | R | `TRUE` = braço na orientação home (virado p/ M1, feedback `%I1.3`) |
+| `VacuumOn` | Bool | R | `TRUE` = vácuo ligado (Grab ativo) |
+| `M1Speed` | LReal | R | Velocidade M1 (V) — 0 = parada |
+| `M2Speed` | LReal | R | Velocidade M2 (V) |
+| `BoxAtPick` | Bool | R | **Reservado** — seria OK da esteira (caixa posicionada); ainda não integrado |
+| `ItemDetected` | Bool | R | `TRUE` = caixa detectada na ventosa (feedback `%I1.1`); anti-esmagamento na descida |
+| `SensorBox` | Bool | R | `TRUE` = sensor M1 retrorreflexivo acionado (caixa presente, feedback `%I0.5`) |
+| `Fault` | Bool | R | `TRUE` = falha ativa (travada, requer reset) |
+| `FaultCode` | Int | R | Código de falha: 0=ok, 1=timeout X/homing, 2=timeout Z, 3=timeout rotação, 4=Z no limite sem ItemDet (sem caixa), 5=reservado (aposentado) |
+| `ManRejected` | Int | R | Código do **primeiro** jog bloqueado do scan (intertravamento): **0**=nenhum; **1**=conflito de jog X (>1 botão X simultâneo); **2**=jog X bloqueado por geometria (Z não up / Rotating); **3**=descida de Z bloqueada (X fora de estação X_pick/X_place / Rotating); **4**=conflito de jog Z (ZToUp+ZToPlace simultâneos); **5**=rotação bloqueada (geometria / exclusão mútua / homing sem Z up) |
+| `CycleCount` | DInt | R | Contador de ciclos concluídos (incrementado ao fim do step final em AUTO) |
+
+> **`ManRejected` é indicador de diagnóstico:** textos na tela ("Recolha Z antes de mover X",
+> "X deve estar em X_pick/X_place para descer Z", "Recolha Z antes de girar/referenciar", etc.)
+> mapeados por este código. Reflete o **primeiro** bloqueio do scan e re-arma a 0 a cada scan.
+
+### 10.5 Notas de integração WinCC
+
+1. **Sem novos endereços físicos:** todos os campos acima são do `StationData` (DB global).
+   I/O física (`%I`/`%Q`/`%ID`/`%QD`) permanece **inalterada** (seções 2–5).
+
+2. **Binding de tags no WinCC:**
+   - Leitura: IHM → PLC via **input fields** ligados a `StationData.Station.Cmd.Man.*`,
+     `StationData.Station.Cmd.AutoMode`, etc.
+   - Escrita: PLC → IHM via **gauges/alarmes** ligados a `StationData.Station.Sts.*`.
+   - **Connection:** device driver S7-PLCSIM ou PROFINET S7 (1500) no WinCC Runtime,
+     apontando para a CPU via IP.
+
+3. **Safety:**
+   - E-Stop **físico** `%I0.3` é **primário** (NF, direct wire via handshake PLCSIM).
+   - E-Stop **em tela** é conforto; entrada do IHM sofre latching igual (não é "autoreset").
+   - Manual mode **está sujeito a intertravamentos** (guardas centralizadas em `FC_Interlocks`,
+     lidas pelo `FB_ManualControl`); jog rejeitado não escreve SP/comando.
+
+4. **Sinalização em tela:**
+   - `Sts.Mode` → exibir estado (cor: verde=RODANDO, amarelo=PARADO, vermelho=EMERGÊNCIA,
+     outros=FALHA).
+   - `Sts.ManRejected` → avisar rejeição de jog (ícone/banner/log).
+   - `Sts.Fault` + `Sts.FaultCode` → diagnóstico (ex.: "Timeout movimento X").
+
+---

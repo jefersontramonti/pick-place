@@ -13,6 +13,22 @@ VERSION : 0.1
             EStop : Bool;   // FALSE = emergência (NF)
             Reset : Bool;   // pulso de reset (R_TRIG no consumidor)
             AutoMode : Bool;   // reservado para HMI (auto/manual)
+
+        // Comandos manuais da IHM (modo MANUAL) — jog por nivel/pulso
+            Man : STRUCT
+                M1Run    : Bool;   // jog esteira M1 (liga enquanto pressionado)
+                M2Run    : Bool;   // jog esteira M2
+                XToPick  : Bool;   // ir para X_pick
+                XToHome  : Bool;   // ir para X_home
+                XToPlace : Bool;   // ir para X_place
+                ZToUp    : Bool;   // ir para Z_up
+                ZToPlace : Bool;   // ir para Z_place
+                RotCW    : Bool;   // pulso girar horario
+                RotCCW   : Bool;   // pulso girar anti-horario
+                RotHome  : Bool;   // referenciar rotacao (ir p/ casa)
+                VacOn    : Bool;   // ligar vacuo (Grab)
+                VacOff   : Bool;   // desligar vacuo
+            END_STRUCT;
         END_STRUCT;
 
     // Parametrização: start values definem calibração inicial (ajustáveis sem recompilar)
@@ -50,6 +66,8 @@ VERSION : 0.1
             Fault : Bool;         // falha ativa (travada)
             FaultCode : Int;          // 0=ok 1=timeout X/homing 2=timeout Z 3=timeout rotacao 4=Z no limite sem ItemDet (sem caixa); 5=reservado (aposentado)
             CycleCount : DInt;         // contador de ciclos concluidos
+            ManActive : Bool;         // TRUE = modo MANUAL ativo (espelho de o_RunManual)
+            ManRejected : Int;          // codigo/contagem de jog bloqueado por intertravamento (0=nenhum)
         END_STRUCT;
 
     END_STRUCT;

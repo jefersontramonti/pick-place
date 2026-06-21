@@ -18,6 +18,12 @@
   `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
   `FB_AxisPos`/`FB_Rotate180`/`FB_RotateToHome`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`,
   e `OBs/OB_Main.scl`. Pisca da torre via **byte de clock da CPU** (MB0), não por FB.
+- **Fase Modo MANUAL + IHM (2026-06-21): ✅ LÓGICA IMPLEMENTADA e validada** (aprovada sem
+  CRÍTICO/ALTO). Novos: `FCs/FC_Interlocks.scl`, `FBs/FB_ManualControl.scl`; estendidos
+  `typeStation` (`Cmd.Man.*`+`Sts.ManActive/ManRejected`), `FB_MachineMode` (mux `o_AutoMode`/
+  `o_RunAuto`/`o_RunManual`), `OB_Main` (mux por modo latcheado). Mapa IHM em `tags.md` §10.
+  **Falta TIA/WinCC** (DBs de instância incl. `FB_ManualControl_DB`, reinit `StationData`, device
+  TP1500) e **validação no PLCSIM** — ver "Sessão 2026-06-21" ao fim deste arquivo.
   **Pendências só no TIA Portal** (não viram `.scl`): criar a tag table das
   24 tags (endereços no `tags.md` §6; `%ID/%QD`=Real), os 4 DBs de instância
   (`FB_MachineMode_DB`, `FB_Conveyor_M1_DB`, `FB_Conveyor_M2_DB`,
@@ -502,3 +508,56 @@
   nota cosmética do mapa de timeout em `FB_PickPlaceSeq.scl:374`; remover `Cfg.ClkSlowHz/ClkFastHz`
   do UDT numa limpeza futura (mexe no layout do DB → regen no TIA).
 - Pendências herdadas: C-1 (F-CPU/STO, decisão normativa), M-1, M-2.
+
+---
+
+## Sessão 2026-06-21 — Modo MANUAL + IHM (lógica implementada)
+
+Fase "Modo MANUAL + IHM SIMATIC" saiu do plano para `.scl`. Orquestração pelo time de
+subagentes (architect → developer → reviewer → safety → tag-io). **Aprovada sem CRÍTICO/ALTO.**
+
+### Blocos criados/alterados (todos validam no MCP)
+- **`FCs/FC_Interlocks.scl`** (NOVO) — FC pura/stateless: fonte única das guardas de anticolisão
+  (`o_CanMoveX/CanDescendZ/CanRotate`), reusada pelo Seq e pelo Manual. Sem E-Stop/estado seguro
+  (responsabilidade do chamador). Validado + safety-auditor emitiu "contrato de uso" (na ARQUITETURA).
+- **`UDTs/typeStation.scl`** — `+Cmd.Man{12 bool}` (M1Run/M2Run/XToPick/XToHome/XToPlace/ZToUp/
+  ZToPlace/RotCW/RotCCW/RotHome/VacOn/VacOff) + `Sts.ManActive:Bool` + `Sts.ManRejected:Int`.
+- **`FBs/FB_MachineMode.scl`** — `+i_AutoMode`, `+i_Step` → `+o_RunAuto/o_RunManual/o_AutoMode`
+  (`o_Run = RunAuto OR RunManual`). Modo latcheado `s_AutoMode` com gate de troca só em `Step=0`.
+  MANUAL = verde piscando lento. FSM/latches/SafeState inalterados.
+- **`FBs/FB_ManualControl.scl`** (NOVO) — jog X/Z por posições predefinidas (FB_AxisPos próprios),
+  esteiras jog puro, rotação por pulso (FB_Rotate180/FB_RotateToHome próprios), vácuo on/off
+  (VacOff domina). Gate-mestre `t_active = i_RunManual AND NOT i_SafeState AND NOT i_Fault`.
+  `Sts.ManRejected` (0..5, primeiro evento do scan). Interface `io_Station` IN_OUT.
+- **`OBs/OB_Main.scl`** — mux **por modo latcheado** `IF o_AutoMode` (Conveyors+Seq) `ELSE`
+  (FB_ManualControl); `Sts.ManActive := o_RunManual`; rotação roteada da fonte ativa.
+- **`DOCS/tags.md`** — nova §10: mapa de tags IHM (52 símbolos do StationData), legenda
+  `ManRejected`, TP1500 Comfort/WinCC. **Sem I/O física nova** (fase DB-cêntrica).
+
+### Decisões-chave da sessão
+- **Mux ramifica por `o_AutoMode` (modo latcheado), NÃO por `o_RunAuto`.** Senão o `FB_PickPlaceSeq`
+  não rodaria em AUTO+PARADO/E-Stop e não executaria seu "Reset a IDLE" (`i_SafeState OR NOT i_Run`),
+  congelando o Step no meio do ciclo. Por isso o `FB_MachineMode` ganhou a saída `o_AutoMode`.
+- **`FC_Interlocks` é fonte única** das guardas (Seq + Manual) — evita divergência auto/manual.
+- **Homing manual exige Z up** (anticolisão §7) e solta o trigger também na falha (`o_Fault`) —
+  achados do safety/reviewer corrigidos antes de fechar.
+
+### Achados de revisão (corrigidos) e pendências de verificação
+- Corrigido: deadlock latente do homing (o_Fault não consumido); homing sem Z up; `ManRejected`
+  "último vence" → "primeiro vence".
+- **Verificar no PLCSIM:** (1) bumpless AUTO↔MANUAL (sem salto de SP; FB_AxisPos i_Enable=FALSE
+  mantém o_SetPointCmd); (2) `InPos` herdado na transição AUTO→MANUAL (mitigado por troca só em
+  Step=0); (3) TON congelado dos conveyors não emite pulso residual ao voltar MANUAL→AUTO;
+  (4) `Sts.ManActive` = "MANUAL e RODANDO" — confirmar semântica esperada na tela WinCC.
+
+### Pendências só no TIA/WinCC (não viram .scl)
+- Regenerar DBs de instância: **`FB_ManualControl_DB`** (NOVO), `FB_MachineMode_DB` (interface
+  mudou). `FB_PickPlaceSeq_DB` só recompilar (layout igual).
+- **Reinit `StationData`** (typeStation cresceu → layout do DB mudou; senão start values não
+  propagam — como já ocorreu com `ClkFastHz`).
+- Recompilar `OB_Main`/`FB_MachineMode`/`FB_ManualControl`; importar `FC_Interlocks`.
+- WinCC: criar device **TP1500 Comfort** + telas + binding simbólico (mapa em `tags.md` §10).
+
+### Pendências herdadas (inalteradas)
+- C-1 (parada segura real exigiria F-CPU/PROFIsafe/STO — **agravada** pelo jog manual aumentar a
+  exposição do operador; decisão de risco do usuário), M-1, M-2.
