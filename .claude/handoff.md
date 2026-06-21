@@ -31,6 +31,18 @@ A lógica `.scl` da fase "Modo MANUAL + IHM SIMATIC" está **implementada, valid
 4. Cada código de `Sts.ManRejected` (conflitos e intertravamentos); homing manual com/sem Z up.
 5. Semântica de `Sts.ManActive` (= "MANUAL e RODANDO") na tela.
 
+### Camada IHM (2026-06-21) — projeto + comando IHM (implementados no PLC)
+- **`DOCS/IHM_TP1500_Telas.md`** (NOVO) — projeto das telas WinCC: 6 telas + template + 2 pop-ups,
+  navegação, protótipos, alarmes, níveis de acesso, checklist. Telas ainda a fazer no WinCC.
+- **IHM comanda Liga/Para/Reset:** `+Cmd.HmiStart/HmiStopReq/HmiReset` no `typeStation`; mescla no
+  `FC_IoMapInputs` (`Start/Reset = físico OR HMI`; `Stop = físico AND NOT HmiStopReq`). E-Stop só
+  físico. Safety: fail-safe preservado.
+- **Decisão C-1 — rearme separado (implementado):** `+Cmd.ResetPhys` (físico cru) → só rearme de
+  EMERGÊNCIA no `FB_MachineMode`; `HmiReset` reseta só FALHA. **Partida remota aceita sob C-1.**
+- **WinCC a fazer:** device TP1500, telas T01–T06, Alarm Control, grupos de usuário, binding
+  (botões `Cmd.Hmi*` = "set bit while key pressed"; **não** bindar `Cmd.Start/Stop/Reset/EStop/
+  ResetPhys`). Reinit do `StationData` no TIA já cobre os novos `Cmd.*` (nascem FALSE = seguro).
+
 ### Pendências herdadas
-C-1 (parada segura real exigiria F-CPU/PROFIsafe/STO — **agravada** pelo jog manual; decisão de
-risco do usuário), M-1, M-2.
+C-1 (parada segura real exigiria F-CPU/PROFIsafe/STO — **agravada** pelo jog manual **e pela partida
+remota da IHM**; decisão de risco do usuário, registrada), M-1, M-2.

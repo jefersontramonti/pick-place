@@ -1,0 +1,53 @@
+Name;Connection;PLC_Tag;DataType;AcquisitionCycle;Uso;Comentario
+Cmd_HmiStart;HMI_Conn_CLP;StationData.Station.Cmd.HmiStart;Bool;100 ms;W;Botao LIGAR (momentaneo - set bit while key pressed)
+Cmd_HmiStopReq;HMI_Conn_CLP;StationData.Station.Cmd.HmiStopReq;Bool;100 ms;W;Botao PARAR funcional (momentaneo)
+Cmd_HmiReset;HMI_Conn_CLP;StationData.Station.Cmd.HmiReset;Bool;100 ms;W;Botao RESET - so FALHA (momentaneo)
+Cmd_AutoMode;HMI_Conn_CLP;StationData.Station.Cmd.AutoMode;Bool;100 ms;W;Seletor AUTO(TRUE)/MANUAL(FALSE)
+Cmd_EStop;HMI_Conn_CLP;StationData.Station.Cmd.EStop;Bool;200 ms;R;Estado da emergencia fisica - SO LEITURA (nunca botao)
+Man_M1Run;HMI_Conn_CLP;StationData.Station.Cmd.Man.M1Run;Bool;100 ms;W;Jog esteira M1 (manter pressionado)
+Man_M2Run;HMI_Conn_CLP;StationData.Station.Cmd.Man.M2Run;Bool;100 ms;W;Jog esteira M2 (manter pressionado)
+Man_XToPick;HMI_Conn_CLP;StationData.Station.Cmd.Man.XToPick;Bool;100 ms;W;X -> Pega (momentaneo)
+Man_XToHome;HMI_Conn_CLP;StationData.Station.Cmd.Man.XToHome;Bool;100 ms;W;X -> Casa (momentaneo)
+Man_XToPlace;HMI_Conn_CLP;StationData.Station.Cmd.Man.XToPlace;Bool;100 ms;W;X -> Deposito (momentaneo)
+Man_ZToUp;HMI_Conn_CLP;StationData.Station.Cmd.Man.ZToUp;Bool;100 ms;W;Z -> Subir (momentaneo)
+Man_ZToPlace;HMI_Conn_CLP;StationData.Station.Cmd.Man.ZToPlace;Bool;100 ms;W;Z -> Descer (momentaneo)
+Man_RotCW;HMI_Conn_CLP;StationData.Station.Cmd.Man.RotCW;Bool;100 ms;W;Girar CW (pulso)
+Man_RotCCW;HMI_Conn_CLP;StationData.Station.Cmd.Man.RotCCW;Bool;100 ms;W;Girar CCW (pulso)
+Man_RotHome;HMI_Conn_CLP;StationData.Station.Cmd.Man.RotHome;Bool;100 ms;W;Referenciar rotacao - HOME (exige Z up)
+Man_VacOn;HMI_Conn_CLP;StationData.Station.Cmd.Man.VacOn;Bool;100 ms;W;Ligar vacuo
+Man_VacOff;HMI_Conn_CLP;StationData.Station.Cmd.Man.VacOff;Bool;100 ms;W;Soltar vacuo (domina VacOn)
+Cfg_Enabled;HMI_Conn_CLP;StationData.Station.Cfg.Enabled;Bool;1 s;RW;Habilita o ciclo
+Cfg_X_pick;HMI_Conn_CLP;StationData.Station.Cfg.X_pick;LReal;1 s;RW;Setpoint X de pega (V)
+Cfg_X_home;HMI_Conn_CLP;StationData.Station.Cfg.X_home;LReal;1 s;RW;X recolhido/casa (V)
+Cfg_X_place;HMI_Conn_CLP;StationData.Station.Cfg.X_place;LReal;1 s;RW;Setpoint X de deposito (V)
+Cfg_Z_up;HMI_Conn_CLP;StationData.Station.Cfg.Z_up;LReal;1 s;RW;Z repouso/subido (V)
+Cfg_Z_place;HMI_Conn_CLP;StationData.Station.Cfg.Z_place;LReal;1 s;RW;Z de deposito (V)
+Cfg_Z_pickLimit;HMI_Conn_CLP;StationData.Station.Cfg.Z_pickLimit;LReal;1 s;RW;Limite de descida na pega (V) - afeta anticolisao
+Cfg_PosTol;HMI_Conn_CLP;StationData.Station.Cfg.PosTol;LReal;1 s;RW;Tolerancia em posicao (V)
+Cfg_PosDebounce;HMI_Conn_CLP;StationData.Station.Cfg.PosDebounce;Time;1 s;RW;Estabilizacao do em-posicao (ms)
+Cfg_ConvSpeed;HMI_Conn_CLP;StationData.Station.Cfg.ConvSpeed;LReal;1 s;RW;Velocidade das esteiras (V)
+Cfg_M1StopDelay;HMI_Conn_CLP;StationData.Station.Cfg.M1StopDelay;Time;1 s;RW;Atraso p/ parar M1 apos sensor (ms)
+Cfg_SeqStepTimeout;HMI_Conn_CLP;StationData.Station.Cfg.SeqStepTimeout;Time;1 s;RW;Timeout de passo -> FALHA (ms)
+Cfg_ClkSlowHz;HMI_Conn_CLP;StationData.Station.Cfg.ClkSlowHz;LReal;1 s;RW;Freq pisca lento (Hz) - informativo
+Cfg_ClkFastHz;HMI_Conn_CLP;StationData.Station.Cfg.ClkFastHz;LReal;1 s;RW;Freq pisca rapido (Hz) - informativo
+Sts_Mode;HMI_Conn_CLP;StationData.Station.Sts.Mode;Int;200 ms;R;0=PARADO 1=RODANDO 2=EMERGENCIA 3=FALHA
+Sts_ManActive;HMI_Conn_CLP;StationData.Station.Sts.ManActive;Bool;200 ms;R;MANUAL ativo (MANUAL e RODANDO)
+Sts_ManRejected;HMI_Conn_CLP;StationData.Station.Sts.ManRejected;Int;200 ms;R;Jog bloqueado 0..5 (legenda na doc)
+Sts_Step;HMI_Conn_CLP;StationData.Station.Sts.Step;Int;200 ms;R;Passo do ciclo 0..16
+Sts_AxisX_PV;HMI_Conn_CLP;StationData.Station.Sts.AxisX.PV;LReal;200 ms;R;Posicao atual X (V)
+Sts_AxisX_SP;HMI_Conn_CLP;StationData.Station.Sts.AxisX.SP;LReal;200 ms;R;Setpoint atual X (V)
+Sts_AxisX_InPos;HMI_Conn_CLP;StationData.Station.Sts.AxisX.InPos;Bool;200 ms;R;X em posicao
+Sts_AxisZ_PV;HMI_Conn_CLP;StationData.Station.Sts.AxisZ.PV;LReal;200 ms;R;Posicao atual Z (V)
+Sts_AxisZ_SP;HMI_Conn_CLP;StationData.Station.Sts.AxisZ.SP;LReal;200 ms;R;Setpoint atual Z (V)
+Sts_AxisZ_InPos;HMI_Conn_CLP;StationData.Station.Sts.AxisZ.InPos;Bool;200 ms;R;Z em posicao
+Sts_Rotating;HMI_Conn_CLP;StationData.Station.Sts.Rotating;Bool;200 ms;R;Braco em rotacao
+Sts_RotHome;HMI_Conn_CLP;StationData.Station.Sts.RotHome;Bool;200 ms;R;Braco na casa (home)
+Sts_VacuumOn;HMI_Conn_CLP;StationData.Station.Sts.VacuumOn;Bool;200 ms;R;Vacuo ligado
+Sts_M1Speed;HMI_Conn_CLP;StationData.Station.Sts.M1Speed;LReal;200 ms;R;Velocidade aplicada M1 (V)
+Sts_M2Speed;HMI_Conn_CLP;StationData.Station.Sts.M2Speed;LReal;200 ms;R;Velocidade aplicada M2 (V)
+Sts_BoxAtPick;HMI_Conn_CLP;StationData.Station.Sts.BoxAtPick;Bool;200 ms;R;Caixa posicionada (OK da esteira)
+Sts_ItemDetected;HMI_Conn_CLP;StationData.Station.Sts.ItemDetected;Bool;200 ms;R;Peca detectada na ventosa
+Sts_SensorBox;HMI_Conn_CLP;StationData.Station.Sts.SensorBox;Bool;200 ms;R;Sensor caixa na M1
+Sts_Fault;HMI_Conn_CLP;StationData.Station.Sts.Fault;Bool;200 ms;R;Falha ativa (travada)
+Sts_FaultCode;HMI_Conn_CLP;StationData.Station.Sts.FaultCode;Int;200 ms;R;Codigo de falha 1..4
+Sts_CycleCount;HMI_Conn_CLP;StationData.Station.Sts.CycleCount;DInt;500 ms;R;Ciclos concluidos

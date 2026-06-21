@@ -64,13 +64,15 @@
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
   `DOCS/GUIA_AGENTES.md` (local) e seção "Equipe de agentes" do `CLAUDE.md`.
   `motion-specialist`/skill `motion-control` em **standby** (posicionamento analógico).
-- **Próxima fase PLANEJADA (não implementada): Modo MANUAL + IHM SIMATIC TP1500 Comfort (WinCC).**
-  Plano completo do `scl-architect` em `DOCS/ARQUITETURA_PickPlace.md` (seção "FASE PLANEJADA").
-  Decisões fixadas: jog dos eixos por **posições predefinidas**; esteiras no manual = **jog puro**;
-  AUTO/MANUAL ortogonal ao `FB_MachineMode` (troca só em `Step=0`); `FB_ManualControl` escreve os
-  mesmos `Sts.*` (mux condicional no OB; `FC_IoMapOutputs` inalterado); `FC_Interlocks` (fonte única
-  das guardas). Novos blocos: `FB_ManualControl`, `FC_Interlocks`; `+Cmd.Man` no `typeStation`.
-  E-Stop em tela NÃO é parada de segurança (físico NF `%I0.3` manda; reforça C-1).
+- **Fase Modo MANUAL + IHM (2026-06-21): ✅ LÓGICA `.scl` IMPLEMENTADA** (ver bullet acima e
+  "Sessão 2026-06-21" no log). Jog por posições predefinidas; esteiras jog puro; AUTO/MANUAL
+  ortogonal (troca só em `Step=0`); mux do OB por `o_AutoMode`; `FC_Interlocks` fonte única das
+  guardas. **IHM comanda Liga/Para/Reset** (mescla físico+IHM no `FC_IoMapInputs`: `+Cmd.HmiStart/
+  HmiStopReq/HmiReset`); **E-Stop só físico** (`%I0.3`). **Decisão C-1:** rearme de EMERGÊNCIA é só
+  físico (`+Cmd.ResetPhys` → `FB_MachineMode`; HMI reseta só FALHA); **partida remota aceita** sob
+  C-1 (sem linha de visão; parada/partida seguras com pessoas exigiriam F-CPU/STO). Projeto das
+  telas WinCC (6 telas + template + pop-ups) em **`DOCS/IHM_TP1500_Telas.md`**. **Falta TIA/WinCC +
+  PLCSIM.**
 
 ## Log de sessões
 
@@ -561,3 +563,37 @@ subagentes (architect → developer → reviewer → safety → tag-io). **Aprov
 ### Pendências herdadas (inalteradas)
 - C-1 (parada segura real exigiria F-CPU/PROFIsafe/STO — **agravada** pelo jog manual aumentar a
   exposição do operador; decisão de risco do usuário), M-1, M-2.
+
+---
+
+## Sessão 2026-06-21 (cont.) — IHM TP1500: projeto de telas + comando IHM + decisões C-1
+
+### Projeto de telas (novo doc)
+- **`DOCS/IHM_TP1500_Telas.md`** (NOVO) — projeto das telas WinCC do TP1500 Comfort: **6 telas**
+  (Início/Sinótico, Automático, Manual, Parâmetros, Alarmes, Sistema) + template (cabeçalho + barra
+  de navegação) + 2 pop-ups (login, confirmação). Mapa de navegação, protótipos ASCII por tela,
+  bindings de tag, lista de alarmes (FaultCode 1..4 / ManRejected 1..5), 3 níveis de acesso,
+  convenções IEC, checklist de implementação. **Só projeto** — telas serão feitas no WinCC.
+
+### IHM comanda Liga/Para/Reset (mescla físico+IHM)
+- `+Cmd.HmiStart/HmiStopReq/HmiReset` no `typeStation`; `FC_IoMapInputs` agora MESCLA:
+  `Start := físico OR HMI`, `Reset := físico OR HMI`, `Stop := físico AND NOT HmiStopReq` (NF — IHM
+  só ADICIONA parada), `EStop` **inalterado** (só físico). Safety-auditor: **fail-safe preservado,
+  sem defeito de código** (Stop NF imune a mascaramento, provado por tabela-verdade).
+
+### Decisões de risco (C-1) tomadas pelo usuário
+1. **Rearme de EMERGÊNCIA = só físico** (IMPLEMENTADO). `+Cmd.ResetPhys` (reset físico cru) alimenta
+   só o `FB_MachineMode.i_Reset` (clear do latch de emergência); o `Cmd.Reset` mesclado (físico OU
+   IHM) segue para a FALHA no `FB_PickPlaceSeq`. Resultado: **HMI reseta falha funcional, mas NÃO
+   destrava emergência** — o reset físico co-localizado destrava ambos. `FB_MachineMode` não mudou
+   (só a fiação no OB: `i_Reset := Cmd.ResetPhys`).
+2. **Partida remota (`HmiStart`) ACEITA** como está — registrada como risco sob **C-1**: dá RODANDO
+   sem linha de visão da zona. Em lógica standard não há garantia de zona livre; partida/parada
+   seguras com pessoas na zona exigiriam **F-CPU/PROFIsafe/STO**. (Mitigações opcionais futuras:
+   pré-aviso sirene/delay, intertravamento de zona livre.)
+
+### Pré-requisitos WinCC (do `IHM_TP1500_Telas.md` §5, parte já no PLC)
+- Botões `Cmd.Hmi*` = momentâneos ("set bit while key pressed"). A IHM **não** binda
+  `Cmd.Start/Stop/Reset` (são derivados no FC) nem `Cmd.EStop`/`Cmd.ResetPhys` (físicos).
+- TIA: o reinit do `StationData` agora cobre também `Cmd.HmiStart/HmiStopReq/HmiReset/ResetPhys`
+  (nascem FALSE = seguro).

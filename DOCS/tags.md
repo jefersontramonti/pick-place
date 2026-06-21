@@ -255,14 +255,33 @@ endereçamento `%Q`/`%QD`. Garantia fail-safe mesmo com falha isolada de um FB i
 
 | Campo no `StationData.Station.Cmd` | Tipo | Dir | Descrição |
 |---|---|---|---|
-| `Start` | Bool | W | Botão "Liga" na tela — pulso (borda via `R_TRIG` no PLC) |
-| `Stop` | Bool | W | Botão "Desliga" na tela — NF (FALSE = parar) |
-| `EStop` | Bool | W | Botão "Emergência" na tela — NF (FALSE = emergência); **reforça o E-Stop físico**, não o substitui |
-| `Reset` | Bool | W | Botão "Reset" na tela — pulso (borda via `R_TRIG`) |
-| `AutoMode` | Bool | W | Seletor AUTO/MANUAL: `TRUE` = AUTO, `FALSE` = MANUAL |
+| `Start` | Bool | — | **Mescla** Liga = física (`%I0.6`) **OR** `Cmd.HmiStart` — calculado no `FC_IoMapInputs`; **não deve ser escrito pela IHM** |
+| `Stop` | Bool | — | **Mescla** Desliga = física (`%I0.7`) **AND NOT** `Cmd.HmiStopReq` — NF (FALSE = parar); calculado no `FC_IoMapInputs`; **não deve ser escrito pela IHM** |
+| `EStop` | Bool | **R** | **Somente leitura (IHM)** — espelho da parada de emergência física (`%I0.3`, NF). A IHM **não comanda** emergência (segurança). Exibir estado em tela, nunca como botão. |
+| `Reset` | Bool | — | **Mescla** Reset = física (`%I0.4`) **OR** `Cmd.HmiReset` — calculado no `FC_IoMapInputs`; **não deve ser escrito pela IHM** |
+| `HmiStart` | Bool | **W** | Pulso de partida originado na IHM — momentâneo (botão "Liga" na tela). Combinado com físico via OR no `FC_IoMapInputs` |
+| `HmiStopReq` | Bool | **W** | Pedido de parada funcional da IHM — momentâneo (botão "Parar" na tela). Combinado com físico via AND NOT no `FC_IoMapInputs`; força `Stop := FALSE` |
+| `HmiReset` | Bool | **W** | Pulso de reset originado na IHM — momentâneo (botão "Reset" na tela). Reseta **só FALHA** funcional (via `Cmd.Reset` mesclado → `FB_PickPlaceSeq`); **NÃO destrava EMERGÊNCIA** |
+| `AutoMode` | Bool | **W** | Seletor AUTO/MANUAL na IHM: `TRUE` = AUTO, `FALSE` = MANUAL |
+| `ResetPhys` | Bool | — | Reset **físico cru** (`%I0.4`), derivado no `FC_IoMapInputs` — alimenta **só** o rearme de EMERGÊNCIA (`FB_MachineMode`). **Não escrito pela IHM** |
 
-> ⚠️ **E-Stop físico (`%I0.3`) tem prioridade máxima:** E-Stop em tela é funcional (conforto),
-> mas E-Stop **físico NF** `%I0.3` é a parada de segurança. Em caso de divergência, físico vence.
+> **⚠️ Segurança — E-Stop é exclusivamente físico:**
+>
+> - Parada de **emergência segura** é **apenas a física** `%I0.3` (NF, fail-safe).
+> - A IHM **não toca** `Cmd.EStop` — é **somente leitura**, para exibir o estado em tela (diagnóstico).
+> - Nunca criar botão "Emergência" na tela — isso seria falso (não é seguro, apenas conforto).
+> - Botões "Liga" (`HmiStart`) / "Parar" (`HmiStopReq`) / "Reset" (`HmiReset`) na tela são **funcionais** (conforto operacional), não segurança.
+> - **Mescla de comandos** é calculada no `FC_IoMapInputs` (início do scan):
+>   - `Cmd.Start := i_Start OR Cmd.HmiStart` (NA — OR seguro: botão físico **ou** IHM)
+>   - `Cmd.Stop := i_Stop AND NOT Cmd.HmiStopReq` (NF — AND NOT garante que IHM só **adiciona** parada, nunca destrava; fio físico rompido continua parando)
+>   - `Cmd.Reset := i_Reset OR Cmd.HmiReset` (NA — OR seguro) → caminho de rearme de **FALHA**
+>   - `Cmd.ResetPhys := i_Reset` (físico cru) → caminho de rearme de **EMERGÊNCIA** (só físico)
+> - **Rearme separado (decisão C-1, 2026-06-21):** a IHM (`HmiReset`) reseta **só FALHA** funcional;
+>   sair de **EMERGÊNCIA** exige **Reset FÍSICO** co-localizado (`%I0.4` → `Cmd.ResetPhys`). O reset
+>   físico destrava ambos; o da tela, só falha.
+> - **Partida remota (`HmiStart`) aceita sob C-1:** dá RODANDO sem linha de visão da zona; risco
+>   residual registrado (parada/partida seguras com pessoas exigiriam F-CPU/STO).
+> - **Configuração WinCC:** botões `HmiStart/HmiStopReq/HmiReset` usam "set bit while key pressed" (momentâneo, reseta automaticamente após 1 ciclo).
 
 ### 10.2 Tags de Comando Manual (IHM → PLC — apenas em modo MANUAL)
 

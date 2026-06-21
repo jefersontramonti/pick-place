@@ -85,11 +85,14 @@ BEGIN
     END_REGION
 
     REGION 3 Modo + sinalizacao + SafeState
-    // i_SeqFault = Sts.Fault do scan anterior (latch unico no FB_PickPlaceSeq)
+    // i_SeqFault = Sts.Fault do scan anterior (latch unico no FB_PickPlaceSeq).
+    // REARME SEPARADO: a EMERGENCIA so rearma com reset FISICO (Cmd.ResetPhys, %I0.4 cru,
+    // co-localizado) — a IHM NAO destrava emergencia. A FALHA rearma com reset MESCLADO
+    // (Cmd.Reset = fisico OU IHM), tratado no FB_PickPlaceSeq (REGION 6).
         "FB_MachineMode_DB"(i_Start := "StationData".Station.Cmd.Start,
         i_Stop := "StationData".Station.Cmd.Stop,
         i_EStop := "StationData".Station.Cmd.EStop,
-        i_Reset := "StationData".Station.Cmd.Reset,
+        i_Reset := "StationData".Station.Cmd.ResetPhys,
         i_SeqFault := "StationData".Station.Sts.Fault,
         i_ClkSlow := #t_clkSlow,
         i_ClkFast := #t_clkFast,

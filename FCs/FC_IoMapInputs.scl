@@ -9,9 +9,20 @@ VERSION : 0.1
 // FC stateless, chamada no INICIO do scan pelo OB_Main. Isola TODO o endereçamento
 // físico de entrada num ponto único (princípio §6 da arquitetura).
 //
-// Safety: os sinais de emergência (EStop %I0.3, Stop %I0.7) são copiados CRUS —
-// sem inversão, sem máscara, sem condicional. A interpretação NF (FALSE = acionado,
-// latch, fail-safe) é EXCLUSIVA do FB_MachineMode. Aqui é transporte fiel.
+// Comandos Start/Stop/Reset agora são MESCLA físico + IHM (bits Cmd.Hmi*):
+//   - Start := físico OR HmiStart      (NA — OR é seguro)
+//   - Reset := físico OR HmiReset      (NA — OR é seguro; borda no FB_MachineMode)
+//   - Stop  := físico AND NOT HmiStopReq (Stop é NF: a IHM só ADICIONA parada, nunca destrava)
+// EStop permanece EXCLUSIVAMENTE físico — a IHM NÃO comanda emergência (segurança).
+//
+// Safety: os sinais de emergência (EStop %I0.3, Stop %I0.7) chegam CRUS do campo —
+// sem inversão, sem máscara. A interpretação NF (FALSE = acionado, latch, fail-safe)
+// é EXCLUSIVA do FB_MachineMode. (a) Stop é NF: a IHM (AND NOT) só pode ADICIONAR
+// parada, nunca "destravar" — fio físico rompido (i_Stop=FALSE) continua parando
+// independente da IHM. (b) EStop não é tocado: a parada de emergência segura segue
+// só física. (c) Botões HMI são momentâneos (WinCC "set bit while key pressed"):
+// Start/Reset usam R_TRIG no FB_MachineMode (1 pulso = 1 borda); um HmiStopReq
+// momentâneo leva o FSM a PARADO (latcheado até novo Start).
 
     VAR_INPUT
         i_EStop : Bool;   // %I0.3 — cru (NF, NÃO inverter)
@@ -33,11 +44,18 @@ VERSION : 0.1
 BEGIN
 
     REGION Comandos
-    // Cópia CRUA dos 4 comandos — EStop/Stop não invertidos (NF tratado no consumidor)
-        #io_Station.Cmd.EStop := #i_EStop;
-        #io_Station.Cmd.Stop := #i_Stop;
-        #io_Station.Cmd.Start := #i_Start;
-        #io_Station.Cmd.Reset := #i_Reset;
+    // Start/Stop/Reset = MESCLA físico + IHM; EStop = físico exclusivo (NF não invertido).
+    // REARME — DOIS CAMINHOS SEPARADOS (decisão de segurança, co-localização):
+    //   - Cmd.Reset (MESCLADO físico OR IHM) -> clear de FALHA funcional (FB_PickPlaceSeq).
+    //     A IHM PODE resetar falha remotamente.
+    //   - Cmd.ResetPhys (FISICO CRU, %I0.4) -> clear de EMERGENCIA (FB_MachineMode).
+    //     A IHM NAO destrava emergência: o rearme exige presença física co-localizada
+    //     (operador no painel), além do E-Stop já rearmado.
+        #io_Station.Cmd.EStop := #i_EStop;                                   // SEGURANCA: fisico so (NF, nao inverter) — IHM nao comanda
+        #io_Station.Cmd.Stop := #i_Stop AND NOT #io_Station.Cmd.HmiStopReq; // NF (TRUE=ok): IHM forca parada funcional levando a FALSE
+        #io_Station.Cmd.Start := #i_Start OR #io_Station.Cmd.HmiStart;       // NA: liga por botao fisico OU IHM
+        #io_Station.Cmd.Reset := #i_Reset OR #io_Station.Cmd.HmiReset;       // NA: reset MESCLADO p/ FALHA (fisico OU IHM; borda no consumidor)
+        #io_Station.Cmd.ResetPhys := #i_Reset;                               // reset fisico cru (so p/ clear de EMERGENCIA no FB_MachineMode)
     END_REGION
 
     REGION Feedbacks
