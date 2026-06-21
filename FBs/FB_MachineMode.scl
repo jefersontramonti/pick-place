@@ -20,8 +20,8 @@ VERSION : 0.1
         i_EStop : Bool;    // NF  — FALSE = emergencia (ou fio rompido)
         i_Reset : Bool;    // NO  — borda de subida rearma (pulso)
         i_SeqFault : Bool;    // falha vinda da sequencia (timeout de passo etc.)
-        i_ClkSlow : Bool;    // pisca lento (FB_ClockGen.o_Slow)
-        i_ClkFast : Bool;    // pisca rapido (FB_ClockGen.o_Fast)
+        i_ClkSlow : Bool;    // pisca lento (byte de clock da CPU, via OB_Main)
+        i_ClkFast : Bool;    // pisca rapido (byte de clock da CPU, via OB_Main)
     END_VAR
 
     VAR_OUTPUT

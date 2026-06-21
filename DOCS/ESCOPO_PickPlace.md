@@ -107,12 +107,12 @@ passo inicial.
 | Emergência | — | — | **pisca rápido** (~3 Hz) | — | — | pisca se há falha a rearmar |
 | **Falha** | — | — | **pisca lento** (~1 Hz) | — | aceso | **pisca** (há falha a rearmar) |
 
-> **Pisca:** gerado no PLC (`FB_ClockGen`, TON alternado). Lento ≈ 1 Hz, rápido ≈ 3 Hz
-> (em `Cfg.ClkSlowHz`/`ClkFastHz`, ajustáveis).
+> **Pisca:** gerado pelo **byte de clock da CPU** (MB0): `%M0.5` = 1 Hz (lento),
+> `%M0.2` = 2,5 Hz (rápido), lidos no `OB_Main`. Determinístico e imune ao tempo de scan;
+> pré-requisito é habilitar o clock memory byte na config da CPU.
 > **Emergência × Falha:** ambas usam o vermelho da torre; distinguem-se pela **cadência**
 > (emergência = rápido; falha = lento). A luz Desliga acende na Falha (FALHA = "PARADO +
-> indicação", §3). `FB_ClockGen` tem **fallback** (1/3 Hz se `Cfg.*Hz ≤ 0`) e parte com a
-> onda em nível alto, para a torre nunca ficar muda numa emergência/falha por config 0.
+> indicação", §3).
 
 ### 3.2 Botão/Luz de Reset
 

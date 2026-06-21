@@ -11,13 +11,16 @@
 ## Estado atual
 
 - **Projeto atual: estação Two-Axis Pick & Place** (FACTORY I/O v2.5.10 ↔ S7-PLCSIM).
-  **✅ LÓGICA COMPLETA — 13/13 blocos** criados e validados no linter MCP, cada um
+  **✅ VALIDADO E RODANDO NO PLCSIM** (2026-06-20): ciclo Pick & Place completo, torre piscando
+  (byte de clock MB0), rotação sem volta extra, conexão via handshake do template S7-PLCSIM.
+  **Lógica completa** criada e validada no linter MCP, cada um
   revisado (`scl-reviewer`) e auditado em safety (`safety-auditor`): UDTs `typeAxis`/
   `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
-  `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`,
-  e `OBs/OB_Main.scl`. **Pendências só no TIA Portal** (não viram `.scl`): criar a tag table das
-  24 tags (endereços no `tags.md` §6; `%ID/%QD`=Real), os 5 DBs de instância
-  (`FB_ClockGen_DB`, `FB_MachineMode_DB`, `FB_Conveyor_M1_DB`, `FB_Conveyor_M2_DB`,
+  `FB_AxisPos`/`FB_Rotate180`/`FB_RotateToHome`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`,
+  e `OBs/OB_Main.scl`. Pisca da torre via **byte de clock da CPU** (MB0), não por FB.
+  **Pendências só no TIA Portal** (não viram `.scl`): criar a tag table das
+  24 tags (endereços no `tags.md` §6; `%ID/%QD`=Real), os 4 DBs de instância
+  (`FB_MachineMode_DB`, `FB_Conveyor_M1_DB`, `FB_Conveyor_M2_DB`,
   `FB_PickPlaceSeq_DB`), atribuir `OB_Main` ao OB1, e calibrar `Cfg.*`. Escopo em
   `DOCS/ESCOPO_PickPlace.md`; arquitetura em `DOCS/ARQUITETURA_PickPlace.md`; I/O em
   `DOCS/tags.md`; componentes em `DOCS/Componentes_FactoryIO.md`.
@@ -27,6 +30,14 @@
   `OB_Main`). Histórico preservado no log de sessões abaixo. Agentes/comandos/skills mantidos.
 - **Hardware:** mesma CPU **1518T-4 PN/DP** (FW V3.1). Target MCP/WebStorm S7-1500 confirmado
   (`.idea/sclCpuSettings.xml`, `sclHardwareTarget.xml`).
+- **Simulação (PLCSIM ↔ FACTORY I/O) — pré-requisitos OBRIGATÓRIOS:** (1) **handshake do template
+  S7-PLCSIM** no OB cíclico — heartbeat `QB511` (+1/scan) + espelho de entradas (periferia `16#1`
+  → imagem `16#81`, 64 bytes) + DWords `QD1016/QD1020` + eco do byte 512. **Sem ele o driver não
+  conecta** ("correct project template / run mode"). Código de protocolo do fornecedor: **não
+  modificar**; rodar todo scan, espelho ANTES da leitura de I/O. (2) **Clock memory byte em MB0**:
+  `%M0.5 = Clock_1Hz` (pisca lento), `%M0.2 = Clock_2.5Hz` (pisca rápido) — usado pela torre no
+  `OB_Main`. Mudança de config de hardware (ex.: habilitar o clock byte) **derruba a conexão** →
+  recompilar HW + download + RUN + reconnect no FACTORY I/O.
 - **Segurança (lógica standard, sem F-CPU):** E-Stop NF agora em **`%I0.3`** (não `%I0.0`);
   `Stop` NF `%I0.7`; `Start`/`Reset` NO. Estado seguro: `M1:=0, M2:=0, Grab:=FALSE`, sem novo
   setpoint de eixo; latch de falha + reset por **borda**. Intertravamentos (anticolisão,
@@ -34,13 +45,14 @@
 - **Eixos X/Z:** **posicionamento analógico** (setpoint/feedback em tensão 0–10 V), **NÃO**
   Technology Objects/`MC_*`. Rotação do braço **por pulso** (`Rotate CW/CCW` borda, 1 pulso =
   90°; 180° = 2 pulsos). Gripper não usado.
-- **Arquitetura:** plano completo em `DOCS/ARQUITETURA_PickPlace.md` (13 blocos: OB_Main,
-  FB_MachineMode, FB_PickPlaceSeq, FB_AxisPos, FB_Rotate180, FB_Conveyor, FB_ClockGen, FCs de
-  I/O e escala, UDTs typeAxis/typeStation, DB StationData). Ordem de build na §8. **Feitos:**
+- **Arquitetura:** plano completo em `DOCS/ARQUITETURA_PickPlace.md` (OB_Main,
+  FB_MachineMode, FB_PickPlaceSeq, FB_AxisPos, FB_Rotate180, FB_RotateToHome, FB_Conveyor, FCs de
+  I/O e escala, UDTs typeAxis/typeStation, DB StationData). Pisca da torre via byte de clock da
+  CPU (MB0), não por FB. Ordem de build na §8. **Feitos:**
   `typeAxis`, `typeStation` (+`Sts.SensorBox`), `StationData`, `FC_ScaleVolt`,
-  `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_ClockGen`, `FB_AxisPos`, `FB_Rotate180`,
-  `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`. **✅ TODOS os 13 blocos
-  prontos** — lógica completa; resta só a integração no TIA + validação no PLCSIM.
+  `FC_IoMapInputs`, `FC_IoMapOutputs`, `FB_AxisPos`, `FB_Rotate180`, `FB_RotateToHome`,
+  `FB_Conveyor`, `FB_MachineMode`, `FB_PickPlaceSeq`, `OB_Main`. **✅ Lógica completa** —
+  resta só a integração no TIA + validação no PLCSIM.
 - **Equipe de agentes:** 7 subagentes + 5 comandos + 3 skills + hooks (SessionStart +
   PostToolUse validate + **SessionStart(compact|resume)** lembrete de memória). Permissões **autônomo mas limitado**
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
@@ -427,3 +439,59 @@
   vermelho lento + Desliga aceso; parado → amarelo lento; Reset pisca quando há algo a rearmar.
 - Pendências herdadas: C-1 (F-CPU/STO, decisão de risco), M-1, M-2; recuperação 90°/180° da
   rotação no PLCSIM (sessão anterior).
+## Sessão 2026-06-20
+
+### Blocos criados/modificados
+- `FBs/FB_PickPlaceSeq.scl` — **fix de robustez** nos passos 7 (Rot CW) e 15 (Rot CCW): a guarda
+  de anticolisão agora **gateia só a PARTIDA**; o trigger se sustenta via `OR o_Busy OR o_Done`
+  do sub-FB até o handshake. Sem novas VAR (layout do DB de instância preservado). Validado limpo
+  no MCP e revisado (scl-reviewer): sem regressão, sem deadlock; anticolisão na partida e
+  fechamento de malha por `RotHome` no passo 15 preservados.
+- `OBs/OB_Main.scl` — **endereço do byte de clock corrigido** de `%M10.5/%M10.2` para
+  `%M0.5/%M0.2` (a config real da CPU tem o clock memory byte em **MB0**, não MB10). Comentários
+  atualizados. (Linter MCP retornou cache stale citando os endereços antigos; disco confirmado correto.)
+- `DOCS/LEVANTAMENTO_ERROS.md` — nova **seção H** (verificação completa: fix H1 rotação,
+  esclarecimento H2 do falso-positivo `Cfg.Enabled`, itens residuais H3).
+- ⚠️ **As edições acima estão SÓ nos `.scl` (repo), NÃO no projeto TIA** — o TIA reportou
+  "all blocks up-to-date" (os `.scl` são fontes externas; precisam ser importados/regenerados).
+
+### Decisões de arquitetura (ainda não no CLAUDE.md)
+- **FACTORY I/O ↔ S7-PLCSIM (S7-1500) exige o handshake do template** dentro do OB cíclico:
+  contador de **heartbeat em `QB511` (+1/scan)** + **espelho de entradas** (periferia `16#1` →
+  imagem de processo `16#81`, 64 bytes via PEEK/POKE) + DWords de handshake (`QD1016/QD1020`) +
+  eco do byte 512. **Sem isso o driver recusa com "correct project template / S7-PLCSIM run mode"**
+  — mesmo com a CPU em RUN. NÃO é a lógica nem o clock byte. Código de protocolo do fornecedor:
+  **não modificar/“otimizar”**; rodar todo scan, com o espelho de entradas ANTES da leitura de I/O.
+  (Usuário já possui esse handshake no TIA → conexão restabelecida nesta sessão.)
+- **Clock memory byte habilitado em MB0** (não MB10): `%M0.5 = Clock_1Hz` (pisca lento) e
+  `%M0.2 = Clock_2.5Hz` (pisca rápido). É pré-requisito de comissionamento para a torre piscar.
+- **`Cfg.Enabled := TRUE` é intencional** (ARQUITETURA §68; gate `i_Run AND i_Enabled AND
+  i_BoxAtPick`). O "default FALSE" era do `typeRegulator` deletado — **falso-positivo do
+  safety-auditor; NÃO mudar** (mudar quebraria a simulação, não há HMI para habilitar).
+
+### Bugs encontrados e resoluções
+- **Sobre-rotação latente (passos 7/15)** → o trigger caía quando `Rotating` subia (guarda tinha
+  `AND NOT Rotating`), violando o contrato do `FB_Rotate180` ("manter `i_Trig` até `o_Done`");
+  sob jitter de PV podia resetar o FB de DONE→IDLE e disparar **180° extra** → **correção:** guarda
+  só na partida + sustento via `o_Busy/o_Done`. (Reclassificado de "CRÍTICO/FSM travada" → ALTO/
+  robustez após análise de scan: no caso nominal não trava, pois o FB avança por `Rotating`.)
+- **Torre não piscava / endereço do clock** → `OB_Main` lia `%M10.x` mas o clock byte real está em
+  **MB0** → corrigido para `%M0.5/%M0.2`.
+- **FACTORY I/O não conectava ("correct project template / run mode")** → causa: faltava o
+  **handshake do template S7-PLCSIM** no projeto (não era lógica nem clock byte). Confirmado via
+  fórum oficial da FACTORY I/O. **Resolvido:** handshake já presente no TIA do usuário → conectou.
+
+### Validado no PLCSIM (fim da sessão) ✅
+- **Conexão FACTORY I/O ↔ S7-PLCSIM** restabelecida (handshake do template no OB1).
+- **Torre piscando** corretamente (byte de clock MB0): amarelo lento (PARADO), vermelho lento
+  (FALHA), vermelho rápido (EMERGÊNCIA), verde fixo (RODANDO).
+- **Rotação** completa 180° **sem volta extra** (fix dos passos 7/15 importado e recompilado no TIA).
+- **Ciclo Pick & Place completo** rodando.
+- **`FB_ClockGen` REMOVIDO**: era órfão; pisca vem do byte de clock. `Cfg.ClkSlowHz/ClkFastHz`
+  ficaram sem consumidor (mantidos no UDT por ora).
+
+### Próximos passos
+- Itens residuais (opcionais/decisão): `FB_AxisPos.o_InPos` fica TRUE no estado seguro;
+  nota cosmética do mapa de timeout em `FB_PickPlaceSeq.scl:374`; remover `Cfg.ClkSlowHz/ClkFastHz`
+  do UDT numa limpeza futura (mexe no layout do DB → regen no TIA).
+- Pendências herdadas: C-1 (F-CPU/STO, decisão normativa), M-1, M-2.

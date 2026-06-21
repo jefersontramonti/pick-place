@@ -177,10 +177,55 @@ moderada** para não perder o `Item Detected` por amostragem.
 
 ---
 
+## H. Verificação completa do projeto (4ª rodada — revisão estática + scan-cycle)
+
+Varredura de **todos os 14 blocos** (linter MCP + scl-reviewer + safety-auditor). Linter limpo
+em 14/14 (só `OB_Main` com falsos-positivos: `%M10.x` intencional, `VAR_TEMP` write-then-read).
+
+### H1 — Handshake do trigger de rotação derrubado durante o giro (`FB_PickPlaceSeq`, passos 7 e 15)
+- **Achado (scl-reviewer):** nos passos 7 (CW) e 15 (CCW) o trigger (`s_trigCW`/`s_trigCCW`) só
+  era setado **dentro** da guarda de anticolisão, que inclui `AND NOT Rotating`. Ao começar o giro,
+  `Rotating` sobe → a guarda cai → o trigger volta a FALSE (zerado nos Defaults). Isso **viola o
+  contrato** do `FB_Rotate180` ("manter `i_Trig` até `o_Done`").
+- **Análise de ciclo de scan (orquestrador):** **não trava** no caso nominal — o `FB_Rotate180`
+  avança pelo feedback `Rotating` (não pelo `i_Trig`) e o pulso é por nível. O risco real é
+  **sobre-rotação**: sob jitter do PV analógico de X/Z na fronteira da `PosTol` (0.1 V), na janela
+  após concluir o giro, o FB pode resetar de DONE→IDLE e **re-disparar um 180° extra** (colisão/
+  orientação errada); na variante benigna, estola e cai no timeout (FaultCode 3). Reclassificado de
+  "CRÍTICO/FSM travada" → **ALTO/robustez**.
+- **Correção:** a guarda completa passa a gatear **só a partida**; uma vez iniciada, o trigger se
+  sustenta via `OR #s_RotCW.o_Busy OR #s_RotCW.o_Done` (saídas auto-resetáveis do sub-FB) até o
+  handshake. A transição de passo (`o_Done` → próximo estado) saiu de dentro da guarda. **Sem novas
+  VAR** (layout do DB de instância preservado). Anticolisão na partida e fechamento de malha por
+  `RotHome` no passo 15 mantidos.
+- **Status:** ✅ **validado e funcionando no PLCSIM** (rotação completa 180° sem volta extra;
+  importado/recompilado no TIA). Validado também no MCP (limpo).
+
+### H2 — "A-1 `Cfg.Enabled := TRUE`" reportado pelo safety-auditor era **FALSO-POSITIVO**
+- O auditor alegou divergência da convenção "default FALSE". Verificado: `ARQUITETURA_PickPlace.md:68`
+  especifica **deliberadamente** `Enabled := TRUE` para o `typeStation`, e o gate documentado é
+  `i_Run AND i_Enabled AND i_BoxAtPick AND NOT i_SafeState`. O "default FALSE" era do **`typeRegulator`**
+  (subsistema ITV **deletado** — `PROJECT_STATE.md:97`), confundido com o `typeStation`.
+- **Decisão:** **nada a corrigir** — `Enabled := TRUE` está certo e casa com a arquitetura; mudar para
+  FALSE quebraria a simulação (não há HMI para habilitar). Achado descartado.
+
+### H3 — Itens MÉDIO/BAIXO confirmados, sem correção nesta rodada (registro)
+- **`FB_AxisPos.o_InPos` fica TRUE no estado seguro** (congelado no PV ≠ "no destino"): armadilha
+  se a HMI confiar em `InPos`. Inócuo hoje (FSM zera no safe). Sugestão futura: `o_InPos := FALSE`
+  em `i_SafeState`.
+- **Pisca depende do clock byte (MB0):** se o "clock memory byte" não estiver habilitado em **MB0**,
+  `%M0.5/%M0.2` ficam sempre FALSE → **torre não pisca na emergência**. Item **crítico de checklist
+  de comissionamento**. (O `FB_ClockGen` foi **removido** na sessão 2026-06-20 — o pisca vem direto
+  do byte de clock; `Cfg.ClkSlowHz/ClkFastHz` ficaram sem uso.)
+- **Homing do estado 0:** verificado **robusto** (completa por sensor absoluto `RotHome`, guarda
+  `NOT RotHome` sustenta o trigger naturalmente) — não sofre o bug do H1. Sem alteração.
+
+---
+
 ## Resultado
 
-Com B1, B2, C1–C3, F1, F2 e a calibração D, o **ciclo Pick → gira 180° → deposita → retorna rodou
+Com B1, B2, C1–C3, F1, F2, **H1** e a calibração D, o **ciclo Pick → gira 180° → deposita → retorna rodou
 completo e repetido no PLCSIM**, e a **recuperação por homing (X/Z)** funcionou. Todos os blocos
-(`FB_AxisPos`, `FB_PickPlaceSeq`, `FB_RotateToHome`, `FB_ClockGen`, `FC_IoMapInputs`, `typeStation`,
+(`FB_AxisPos`, `FB_PickPlaceSeq`, `FB_RotateToHome`, `FC_IoMapInputs`, `typeStation`,
 `OB_Main`) validam limpo no MCP; falta criar a tag `%I1.3` no TIA, recompilar e testar a
 **recuperação da rotação** (90°/180°) no PLCSIM.

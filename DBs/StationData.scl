@@ -20,12 +20,10 @@ STRUCT
 END_STRUCT
 
 BEGIN
-// Start values da sinalizacao: EXPLICITOS aqui (nao apenas herdados do UDT). Motivo: quando o
-// typeStation muda e o DB e regenerado/reinicializado, a heranca de default do UDT pode NAO
-// repropagar e os campos ficam 0.0 -> FB_ClockGen pararia o pisca -> torre vermelha nao acende
-// na emergencia. Fixar aqui garante o pisca apos qualquer reinicializacao do DB.
-Station.Cfg.ClkSlowHz := 1.0;    // pisca lento (Hz) — amarelo (PARADO) e vermelho (FALHA)
-Station.Cfg.ClkFastHz := 3.0;    // pisca rapido (Hz) — vermelho (EMERGENCIA)
+// NOTA: o pisca da torre vem do BYTE DE CLOCK da CPU (MB0: %M0.5=1Hz, %M0.2=2,5Hz), lido
+// direto no OB_Main. Os campos Cfg.ClkSlowHz/ClkFastHz do typeStation ficaram SEM USO (nao ha
+// mais consumidor) — mantidos no UDT por ora; podem ser removidos numa limpeza futura (mexe no
+// layout do DB -> regenerar no TIA).
 
 // Para personalizar por implantação (sem recompilar), descomente e ajuste:
 // Station.Cfg.ConvSpeed      := 5.0;    // velocidade de regime das esteiras (V)

@@ -18,9 +18,10 @@ WebStorm (`.idea/`).
 > 180° → deposita → retorna**. Os eixos X/Z são **posicionamento analógico** (setpoint/feedback
 > em tensão 0–10 V), não Technology Objects. **Feitos e validados:** UDTs `typeAxis`/
 > `typeStation`, DB `StationData`, FCs `FC_ScaleVolt`/`FC_IoMapInputs`/`FC_IoMapOutputs`, FBs
-> `FB_ClockGen`/`FB_AxisPos`/`FB_Rotate180`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq` e
-> `OB_Main`. **Pendências só no TIA** (não viram `.scl`): tag table (24 tags), 5 DBs de
-> instância, atribuir OB1. Progresso ao vivo em `DOCS/PROJECT_STATE.md`.
+> `FB_AxisPos`/`FB_Rotate180`/`FB_RotateToHome`/`FB_Conveyor`/`FB_MachineMode`/`FB_PickPlaceSeq`
+> e `OB_Main`. Pisca da torre via **byte de clock da CPU** (MB0), não por FB. **Pendências só no
+> TIA** (não viram `.scl`): tag table (24 tags), 4 DBs de instância, atribuir OB1. Progresso ao
+> vivo em `DOCS/PROJECT_STATE.md`.
 >
 > *(Histórico: o repositório teve antes um subsistema de 20 motores + 2 reguladores ITV,
 > removido nesta sessão. O log fica em `DOCS/PROJECT_STATE.md`.)*
@@ -48,13 +49,24 @@ WebStorm (`.idea/`).
 - **FACTORY I/O v2.5.10** (cena "New Scene") ↔ **S7-PLCSIM**.
 - Export de tags da cena: `DOCS/Tags_New Scene_Siemens S7-PLCSIM_2026-06-16-13-16-09.xml`
   (fonte da verdade do endereçamento físico de I/O).
+- **Pré-requisitos OBRIGATÓRIOS para conectar/simular (S7-1500):**
+  - **Handshake do template S7-PLCSIM** no OB cíclico: heartbeat `QB511` (+1/scan) + espelho de
+    entradas (periferia `16#1` → imagem `16#81`, 64 bytes via PEEK/POKE) + DWords `QD1016/QD1020`
+    + eco do byte 512. **Sem ele o driver recusa com "correct project template / run mode"** —
+    mesmo com a CPU em RUN; **não é a lógica nem o clock byte**. É código de protocolo do
+    fornecedor: **NÃO modificar/"otimizar"**; roda todo scan, com o espelho ANTES da leitura de
+    I/O (já presente no projeto TIA do usuário).
+  - **Clock memory byte habilitado em MB0** (CPU → System and clock memory): `%M0.5 = Clock_1Hz`
+    (pisca lento), `%M0.2 = Clock_2.5Hz` (pisca rápido) — lidos no `OB_Main` para a torre.
+  - **Mudança de config de hardware derruba a conexão:** após mexer no hardware (ex.: habilitar o
+    clock byte), recompilar HW → download → CPU em RUN → **reconnect** no FACTORY I/O.
 
 ## Estrutura
 
 ```
 aula01/
 ├─ OBs/          OB_Main.scl  (OB1 orquestrador — chama tudo na ordem §4)
-├─ FBs/          FB_ClockGen, FB_AxisPos, FB_Rotate180, FB_RotateToHome, FB_Conveyor,
+├─ FBs/          FB_AxisPos, FB_Rotate180, FB_RotateToHome, FB_Conveyor,
 │                FB_MachineMode, FB_PickPlaceSeq
 ├─ FCs/          FC_ScaleVolt, FC_IoMapInputs, FC_IoMapOutputs
 ├─ DBs/          StationData (Station : typeStation)

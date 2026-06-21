@@ -21,7 +21,7 @@
 | 5 | **FC** | `FC_IoMapInputs` | Roteia entradas físicas (`%I`, `%ID`) → `StationData`. Stateless | `OB_Main` (início do scan) |
 | 6 | **FC** | `FC_IoMapOutputs` | Roteia `StationData` → saídas (`%Q`, `%QD`). Aplica máscara de estado seguro. Stateless | `OB_Main` (fim do scan) |
 | 7 | **FC** | `FC_ScaleVolt` | Conversão V ↔ engenharia (NORM_X/SCALE_X + LIMIT). Pura | `FB_AxisPos`, HMI (opcional) |
-| 8 | **FB** | `FB_ClockGen` | Bits de pisca lento (~1 Hz) e rápido (~3 Hz) por TON/TOF — determinístico | `OB_Main` |
+| 8 | — | byte de clock da CPU | Pisca lento (`%M0.5`=1 Hz) e rápido (`%M0.2`=2,5 Hz) — bits de sistema (MB0), lidos direto no `OB_Main`. **Sem FB** (o padrão TON auto-rearmado não oscila em SCL otimizado) | `OB_Main` |
 | 9 | **FB** | `FB_MachineMode` | Estados PARADO/RODANDO/EMERGÊNCIA/FALHA + latch de **emergência** (FALHA = nível via `i_SeqFault`, latcheada no `FB_PickPlaceSeq`) + sinalização (torre + luzes) | `OB_Main` |
 | 10 | **FB** | `FB_AxisPos` | Eixo analógico genérico (1 inst./eixo): escreve SP, lê PV, "em posição" (tol + debounce), congela no safe | `FB_PickPlaceSeq` (multi-inst.) |
 | 11 | **FB** | `FB_Rotate180` | A partir de um trigger, 2 pulsos de `Rotate CW/CCW` contando quedas de `Rotating`; `o_Done` em 180° | `FB_PickPlaceSeq` (CW e CCW) |
@@ -30,8 +30,8 @@
 
 **Acréscimos além da §10 do escopo:** `FC_IoMapInputs`/`FC_IoMapOutputs` (isolam o
 endereçamento físico num ponto único, com a máscara de estado seguro), `FC_ScaleVolt`
-(V↔eng.), `FB_ClockGen` (pisca determinístico) e o UDT `typeAxis` (evita duplicar campos de
-eixo). Os 6 FBs principais + UDT/DB já vinham da §10.
+(V↔eng.) e o UDT `typeAxis` (evita duplicar campos de eixo). O pisca da torre usa o **byte de
+clock da CPU** (MB0), não um FB. Os FBs principais + UDT/DB já vinham da §10.
 
 **Multi-instância:** `FB_PickPlaceSeq` é dono dos sub-FBs de movimento (`FB_AxisPos` X/Z,
 `FB_Rotate180` CW/CCW), pois o avanço de passo depende do `o_InPos`/`o_Done` deles. M1/M2
@@ -130,12 +130,16 @@ VAR_OUTPUT o_ResetLite,o_Red,o_Green,o_Yellow,o_StartLite,o_StopLite,o_Grab,
 > DB (via IN_OUT) antes do FC rodar — a definir nas interfaces de `FB_Conveyor`/`FB_AxisPos`/
 > `FB_PickPlaceSeq`.
 
-### 2.5 FB `FB_ClockGen`
+### 2.5 Pisca da torre — byte de clock da CPU (sem FB)
+O pisca vem dos bits de sistema do **clock memory byte** (CPU → System and clock memory,
+endereço **MB0**), lidos direto no `OB_Main`:
 ```
-VAR_INPUT  i_SlowHz,i_FastHz : LReal;
-VAR_OUTPUT o_Slow,o_Fast : Bool;   // ondas quadradas
-VAR        s_tSlow,s_tFast : TON;  // (TON/TOF alternado)
+#t_clkSlow := %M0.5;   // Clock_1Hz   -> pisca lento  (amarelo PARADO / vermelho FALHA)
+#t_clkFast := %M0.2;   // Clock_2.5Hz -> pisca rápido (vermelho EMERGÊNCIA)
 ```
+Determinístico e imune ao tempo de scan. **Não usar** o padrão TON auto-rearmado
+(`IN := NOT Q`) em SCL otimizado — ele não oscila (recálculo de `.Q` a cada acesso). Ver
+`DOCS/compass_artifact_*.md`.
 
 ### 2.6 FB `FB_MachineMode`
 ```
@@ -313,7 +317,7 @@ Detecção por **nível gated por estado** (sem F_TRIG global) — evita corrida
 
 ```
 1. FC_IoMapInputs    — %I/%ID → StationData.Cmd/.Sts (espelha feedbacks)
-2. FB_ClockGen       — gera ClkSlow/ClkFast
+2. byte de clock     — lê %M0.5 (lento) e %M0.2 (rápido) em t_clkSlow/t_clkFast (sem FB)
 3. FB_MachineMode    — modo + latch + sinalização; produz o_Run e o_SafeState
 4. FB_Conveyor (M1)  — sensor+delay → BoxAtPick; respeita o_Run e SafeState
 5. FB_Conveyor (M2)  — RODANDO + ForcePause (passos 9..13); SafeState
@@ -398,8 +402,9 @@ nos dois FCs, chamados só pelo `OB_Main`:
    drift.
 7. **Pipeline M1:** religar M1 no passo 5 pode trazer a próxima caixa antes do fim do ciclo;
    `BoxAtPick` só rearma quando a sequência volta a IDLE. Confirmar ausência de corrida.
-8. **Clock:** `FB_ClockGen` (TON/TOF) é determinístico e portável; o byte de clock da CPU
-   serve, mas exige config de hardware. Recomendado o FB.
+8. **Clock:** adotado o **byte de clock da CPU** (MB0: `%M0.5`/`%M0.2`), lido no `OB_Main`.
+   Pré-requisito: habilitar o clock memory byte na config da CPU. O padrão TON auto-rearmado
+   em SCL otimizado **não** oscila (recálculo de `.Q` por acesso) — por isso sem FB.
 
 ---
 
@@ -408,11 +413,11 @@ nos dois FCs, chamados só pelo `OB_Main`:
 1. UDT `typeAxis` e UDT `typeStation` (base — nada compila sem o tipo).
 2. DB `StationData` (instancia o UDT).
 3. FC `FC_ScaleVolt` (puro) e FC_IoMap* (dependem do UDT).
-4. FB `FB_ClockGen` (independente).
+4. (pisca da torre: habilitar o clock byte MB0 na config da CPU — sem bloco a implementar).
 5. FB `FB_AxisPos` (primitiva; usa FC_ScaleVolt opcional).
 6. FB `FB_Rotate180` (primitiva, independente).
 7. FB `FB_Conveyor` (primitiva).
-8. FB `FB_MachineMode` (usa ClockGen para sinalização).
+8. FB `FB_MachineMode` (usa o byte de clock p/ sinalização, via OB_Main).
 9. FB `FB_PickPlaceSeq` (multi-instancia AxisPos × Rotate180; topo da lógica).
 10. OB `OB_Main` (amarra tudo na ordem da §4).
 

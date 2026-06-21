@@ -221,19 +221,23 @@ BEGIN
                     END_IF;
                 END_IF;
 
-            7 : // Rotaciona CW (guarda: Z up & X home & NOT Rotating)
+            7 : // Rotaciona CW (guarda de PARTIDA: Z up & X home & NOT Rotating)
                 #s_grab := TRUE;
                 #s_stepIsMove := TRUE;
-                // timeout cobre tambem a espera da guarda
-                IF #io_Station.Sts.AxisZ.InPos
+                // A guarda de anticolisao so GATEIA A PARTIDA. Uma vez iniciada, SUSTENTA o
+                // trigger ate o handshake (o_Busy/o_Done), mesmo que a guarda caia (Rotating
+                // sobe, jitter de PV) — sem isso o FB_Rotate180 reseta de DONE->IDLE e
+                // re-dispara um 180 extra. timeout cobre tambem a espera da guarda.
+                IF (#io_Station.Sts.AxisZ.InPos
                 AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
                 AND #io_Station.Sts.AxisX.InPos
                 AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
-                AND NOT #io_Station.Sts.Rotating THEN
+                AND NOT #io_Station.Sts.Rotating)
+                OR #s_RotCW.o_Busy OR #s_RotCW.o_Done THEN
                     #s_trigCW := TRUE;
-                    IF #s_RotCW.o_Done THEN
-                        #s_State := 8;
-                    END_IF;
+                END_IF;
+                IF #s_RotCW.o_Done THEN
+                    #s_State := 8;
                 END_IF;
 
             8 : // Move X para deposito (guarda: Z up & NOT Rotating)
@@ -315,21 +319,23 @@ BEGIN
                     END_IF;
                 END_IF;
 
-            15 : // Rotaciona CCW (guarda: Z up & X home & NOT Rotating)
+            15 : // Rotaciona CCW (guarda de PARTIDA: Z up & X home & NOT Rotating)
                 #s_stepIsMove := TRUE;
-                // timeout cobre tambem a espera da guarda
-                IF #io_Station.Sts.AxisZ.InPos
+                // Mesmo padrao do passo 7: guarda gateia so a partida; sustenta o trigger
+                // ate o handshake (o_Busy/o_Done). timeout cobre tambem a espera da guarda.
+                IF (#io_Station.Sts.AxisZ.InPos
                 AND ABS(#io_Station.Sts.AxisZ.PV - #io_Station.Cfg.Z_up) <= #io_Station.Cfg.PosTol
                 AND #io_Station.Sts.AxisX.InPos
                 AND ABS(#io_Station.Sts.AxisX.PV - #io_Station.Cfg.X_home) <= #io_Station.Cfg.PosTol
-                AND NOT #io_Station.Sts.Rotating THEN
+                AND NOT #io_Station.Sts.Rotating)
+                OR #s_RotCCW.o_Busy OR #s_RotCCW.o_Done THEN
                     #s_trigCCW := TRUE;
-                    // Fecha a malha com o sensor: so avanca se a rotacao CCW concluiu E o
-                    // braco esta DE FATO na casa (RotHome). o_Done sem RotHome = deriva ->
-                    // timeout do passo 15 (FaultCode 3) -> FALHA -> homing recupera.
-                    IF #s_RotCCW.o_Done AND #io_Station.Sts.RotHome THEN
-                        #s_State := 16;
-                    END_IF;
+                END_IF;
+                // Fecha a malha com o sensor: so avanca se a rotacao CCW concluiu E o
+                // braco esta DE FATO na casa (RotHome). o_Done sem RotHome = deriva ->
+                // timeout do passo 15 (FaultCode 3) -> FALHA -> homing recupera.
+                IF #s_RotCCW.o_Done AND #io_Station.Sts.RotHome THEN
+                    #s_State := 16;
                 END_IF;
 
             16 : // Ciclo concluido — pulso e incrementa contador
