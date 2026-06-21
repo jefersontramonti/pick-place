@@ -58,6 +58,13 @@
   (Write/Edit só em código/DOCS + handoff). Doc em `DOCS/AGENT_ARCHITECTURE.md` /
   `DOCS/GUIA_AGENTES.md` (local) e seção "Equipe de agentes" do `CLAUDE.md`.
   `motion-specialist`/skill `motion-control` em **standby** (posicionamento analógico).
+- **Próxima fase PLANEJADA (não implementada): Modo MANUAL + IHM SIMATIC TP1500 Comfort (WinCC).**
+  Plano completo do `scl-architect` em `DOCS/ARQUITETURA_PickPlace.md` (seção "FASE PLANEJADA").
+  Decisões fixadas: jog dos eixos por **posições predefinidas**; esteiras no manual = **jog puro**;
+  AUTO/MANUAL ortogonal ao `FB_MachineMode` (troca só em `Step=0`); `FB_ManualControl` escreve os
+  mesmos `Sts.*` (mux condicional no OB; `FC_IoMapOutputs` inalterado); `FC_Interlocks` (fonte única
+  das guardas). Novos blocos: `FB_ManualControl`, `FC_Interlocks`; `+Cmd.Man` no `typeStation`.
+  E-Stop em tela NÃO é parada de segurança (físico NF `%I0.3` manda; reforça C-1).
 
 ## Log de sessões
 
