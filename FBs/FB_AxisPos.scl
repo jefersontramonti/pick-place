@@ -2,6 +2,9 @@ FUNCTION_BLOCK "FB_AxisPos"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // FB_AxisPos: primitiva genérica de posicionamento de UM eixo analógico (interface ESCALAR).
 // Comanda o setpoint (o_SetPointCmd -> %QD), lê o feedback (i_PV <- %ID) e gera "em posição"
 // (o_InPos) por tolerância + debounce. Em ESTADO SEGURO congela na POSIÇÃO ATUAL (SP := PV,

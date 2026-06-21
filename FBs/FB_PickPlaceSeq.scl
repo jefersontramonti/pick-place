@@ -2,6 +2,9 @@ FUNCTION_BLOCK "FB_PickPlaceSeq"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // FB_PickPlaceSeq: topo da logica de processo. Maquina de estados (FSM) do ciclo
 // Pick & Place (0 IDLE, 1..16 passos, 99 FALHA). Multi-instancia FB_AxisPos x2 (X,Z)
 // e FB_Rotate180 x2 (CW,CCW), aplica anticolisao (rotacionar so Z up + X home + NOT

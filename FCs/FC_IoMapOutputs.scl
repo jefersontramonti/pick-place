@@ -2,6 +2,9 @@ FUNCTION "FC_IoMapOutputs" : Void
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // Mapeamento de SAIDAS fisicas (%Q/%QD) a partir de duas fontes.
 // FC stateless, chamada no FIM do scan pelo OB_Main. Isola TODO o enderecamento
 // fisico de saida num ponto unico (principio §6 da arquitetura) e aplica a

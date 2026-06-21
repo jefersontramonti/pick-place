@@ -1,6 +1,9 @@
 TYPE "typeAxis"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
+
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
     STRUCT
         SP : LReal;              // setpoint comandado (V)
         PV : LReal;              // feedback de posição (V)

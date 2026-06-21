@@ -2,6 +2,9 @@ DATA_BLOCK "StationData"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // DB global da estação Pick & Place.
 // Repositório central de dados: acessado por referência (IN_OUT) por todos os FBs/FCs
 // e lido/escrito pela HMI via acesso simbólico.

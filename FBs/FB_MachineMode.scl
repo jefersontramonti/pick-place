@@ -2,6 +2,9 @@ FUNCTION_BLOCK "FB_MachineMode"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // FB_MachineMode: nucleo fail-safe do projeto. Maquina de MODO de operacao
 // PARADO/RODANDO/EMERGENCIA/FALHA. Unico ponto que interpreta a polaridade NF de
 // i_EStop/i_Stop, faz o latch de emergencia/falha e produz o_SafeState (mascara

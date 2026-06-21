@@ -2,6 +2,9 @@ FUNCTION_BLOCK "FB_Rotate180"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // FB_Rotate180: primitiva que gira o braço 180° dando 2 pulsos de 90° no sentido travado,
 // contando as conclusões via Rotating (handshake). FSM de 4 estados (IDLE/PULSE/MOVING/DONE).
 // Interface ESCALAR. Instanciada dentro do FB_PickPlaceSeq (CW e CCW) — NÃO chamar de OB

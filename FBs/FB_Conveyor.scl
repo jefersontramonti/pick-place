@@ -1,6 +1,9 @@
 FUNCTION_BLOCK "FB_Conveyor"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
+
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
 // FB_Conveyor: primitiva ESCALAR de esteira, instanciada 2x — M1 (entrada, COM sensor) e
 // M2 (saida, SEM sensor). Escreve o_Speed (LReal: i_Speed rodando / 0.0 parada). A M1 para
 // quando a caixa termina de passar pelo sensor (borda de descida de i_Sensor) apos

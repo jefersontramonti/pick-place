@@ -2,6 +2,9 @@ ORGANIZATION_BLOCK "OB_Main"
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // OB_Main (OB1): orquestrador ciclico da estacao Pick & Place. NAO contem logica de
 // processo — apenas roteia I/O fisica (via FCs de mapeamento) e encadeia os FCs/FBs na
 // ordem da §4 da arquitetura, propagando o_SafeState a todos no MESMO scan:
@@ -14,7 +17,7 @@ VERSION : 0.1
 //   - conveyors leem "FB_PickPlaceSeq_DB".o_ReleaseM1 / .o_PauseM2 (VAR_OUTPUT retido no DB).
 // Os 3 NAO usam VAR_TEMP (TEMP nasce indefinido a cada scan e quebraria o feedback).
 //
-// As tags fisicas (entre aspas) e os 5 DBs de instancia existem so no projeto TIA.
+// As tags fisicas (entre aspas) e os 4 DBs de instancia existem so no projeto TIA.
 
     VAR_TEMP
     // NOTA: VAR_TEMP nao aceita inicializador em SCL (L-stack, reset por scan). O aviso do

@@ -2,6 +2,9 @@ FUNCTION "FC_IoMapInputs" : Void
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
 
+// Pick & Place — Copyright (C) 2026 Jeferson Tramonti
+// Licenciado sob a GNU GPLv3 — veja o arquivo LICENSE.
+
 // Mapeamento de ENTRADAS físicas (%I/%ID) -> StationData.Station.
 // FC stateless, chamada no INICIO do scan pelo OB_Main. Isola TODO o endereçamento
 // físico de entrada num ponto único (princípio §6 da arquitetura).
