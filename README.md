@@ -1,5 +1,12 @@
 # Pick & Place — Estação Two-Axis (Siemens S7-1500 · SCL)
 
+![Language](https://img.shields.io/badge/Language-SCL%20(IEC%2061131--3)-blue)
+![PLC](https://img.shields.io/badge/PLC-Siemens%20S7--1500%201518T-0098A1)
+![TIA Portal](https://img.shields.io/badge/TIA%20Portal-SCL-009999)
+![Simulation](https://img.shields.io/badge/Sim-FACTORY%20I%2FO%20%E2%86%94%20S7--PLCSIM-orange)
+![Status](https://img.shields.io/badge/status-validado%20no%20PLCSIM-success)
+![License](https://img.shields.io/badge/license-GPLv3-blue)
+
 Projeto de automação de uma estação **Two-Axis Pick & Place** programada em **SCL
 (Structured Control Language)** para PLC **Siemens S7-1500**, desenvolvida no **TIA Portal**
 e simulada em **FACTORY I/O ↔ S7-PLCSIM**.
@@ -31,7 +38,8 @@ esteira de entrada (**M1**) para a de saída (**M2**), com torre de sinalizaçã
 | Item | Detalhe |
 |---|---|
 | **PLC** | Siemens S7-1500 **CPU 1518T-4 PN/DP** (Technology), FW V3.1 |
-| **IDE** | TIA Portal (blocos SCL) |
+| **IDE (PLC)** | TIA Portal — compila/baixa os blocos SCL |
+| **Editor + plugin** | **WebStorm** + plugin **SCL Language Support** — edição, realce e validação de SCL (linter integrado via MCP) |
 | **Simulação** | **S7-PLCSIM** ↔ **FACTORY I/O v2.5.10** (cena "New Scene") |
 | **Linguagem** | SCL — comentários em PT, tags em EN, acesso otimizado |
 
@@ -194,4 +202,6 @@ o export da cena em `DOCS/Tags_New Scene_*.xml`.
 
 ## 📄 Licença
 
-Projeto educacional/de estudo. Sem licença definida — uso conforme acordado com o autor.
+Distribuído sob a **GNU General Public License v3.0 (GPLv3)** — você pode usar, estudar,
+modificar e redistribuir, desde que os trabalhos derivados permaneçam sob a **mesma licença**
+(copyleft) e preservem os avisos de copyright. O texto completo está em [`LICENSE`](LICENSE).
